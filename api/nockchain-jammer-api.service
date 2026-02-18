@@ -1,0 +1,15 @@
+[Unit]
+Description=Nockchain Jammer API
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nockchain-jammer-api
+Environment=API_KEY=CHANGE_ME
+Environment=SCRIPT_PATH=/usr/local/bin/make-jam.sh
+Environment=HTML_ROOT=/usr/share/nginx/html
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

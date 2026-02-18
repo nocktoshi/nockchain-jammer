@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nockchain State Jams</title>
+  <meta name="description" content="Download Nockchain state jam binaries and verify SHA-256 checksums.">
+  <style>
+    body {
+      width: 42em;
+      margin: 0 auto;
+      font-family: Tahoma, Verdana, Arial, sans-serif;
+      line-height: 1.45;
+      color: #111;
+      background: #fff;
+      padding: 2.25rem 0 3rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin: 0 0 0.25rem;
+    }
+
+    p {
+      margin: 0.5rem 0;
+    }
+
+    .meta {
+      color: #555;
+      font-size: 0.95rem;
+    }
+
+    .button {
+      display: inline-block;
+      margin: 1rem 0 1.25rem;
+      padding: 0.6rem 0.9rem;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      text-decoration: none;
+      color: #111;
+      background: #f5f5f5;
+    }
+
+    .button:hover {
+      background: #ececec;
+    }
+
+    .panel {
+      border: 1px solid #d9d9d9;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-top: 1rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead th {
+      text-align: left;
+      font-size: 0.92rem;
+      background: #f7f7f7;
+      border-bottom: 1px solid #d9d9d9;
+      padding: 0.65rem 0.7rem;
+    }
+
+    tbody td {
+      font-size: 0.92rem;
+      border-bottom: 1px solid #efefef;
+      padding: 0.58rem 0.7rem;
+      vertical-align: top;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.86rem;
+      word-break: break-all;
+    }
+
+    .file-col {
+      width: 26%;
+    }
+
+    .hash-col {
+      width: 74%;
+    }
+
+    .status {
+      margin-top: 0.75rem;
+      color: #444;
+      font-size: 0.92rem;
+    }
+
+    .status.error {
+      color: #9f1d1d;
+    }
+
+    .admin-section {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #d9d9d9;
+    }
+
+    .admin-section h2 {
+      font-size: 1.2rem;
+      margin: 0 0 0.5rem;
+    }
+
+    .admin-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0.75rem 0;
+    }
+
+    .admin-row input[type="password"] {
+      flex: 1;
+      max-width: 20em;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      font-size: 0.92rem;
+      font-family: inherit;
+    }
+
+    button.button {
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.92rem;
+      margin: 0;
+    }
+
+    button.button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .job-indicator {
+      font-size: 0.88rem;
+      color: #555;
+      margin: 0.4rem 0;
+    }
+
+    .job-indicator .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #999;
+      margin-right: 0.35rem;
+      vertical-align: middle;
+    }
+
+    .job-indicator .dot.active {
+      background: #e8a500;
+      animation: pulse 1s infinite;
+    }
+
+    .job-indicator .dot.done {
+      background: #2a7d2a;
+    }
+
+    .job-indicator .dot.fail {
+      background: #9f1d1d;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .output-box {
+      margin-top: 0.75rem;
+      padding: 0.7rem 0.8rem;
+      background: #1a1a1a;
+      color: #d4d4d4;
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 16em;
+      overflow-y: auto;
+      display: none;
+    }
+
+    @media (max-width: 760px) {
+      body {
+        width: auto;
+        margin: 0;
+        padding: 1rem;
+      }
+
+      .file-col {
+        width: 34%;
+      }
+
+      .hash-col {
+        width: 66%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Nockchain State Jams</h1>
+  <p class="meta">Download state jam binaries and verify each file with SHA-256.</p>
+  <p>
+    <a class="button" id="latest-link" href="#" download hidden>Download latest `.jam`</a>
+  </p>
+  <p class="meta">
+    Checksum source:
+    <a href="/jams/SHA256SUMS">/jams/SHA256SUMS</a>
+  </p>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th class="file-col">File</th>
+          <th class="hash-col">SHA-256</th>
+        </tr>
+      </thead>
+      <tbody id="hash-table-body">
+        <tr>
+          <td colspan="2">Loading checksums...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p id="status" class="status"></p>
+
+  <script>
+    async function loadHashes() {
+      const tableBody = document.getElementById("hash-table-body");
+      const status = document.getElementById("status");
+      const latestLink = document.getElementById("latest-link");
+
+      try {
+        const response = await fetch("/jams/SHA256SUMS", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+
+        const text = await response.text();
+        const rows = [];
+
+        for (const rawLine of text.split("\n")) {
+          const line = rawLine.trim();
+          if (!line) continue;
+
+          const match = line.match(/^([a-fA-F0-9]{64})\s+(.+)$/);
+          if (!match) continue;
+
+          const hash = match[1].toLowerCase();
+          const path = match[2].trim();
+          if (!path.endsWith(".jam")) continue;
+
+          const cleanPath = path.replace(/^\.?\//, "");
+          rows.push({ hash, path: cleanPath });
+        }
+
+        rows.sort((a, b) => a.path.localeCompare(b.path));
+
+        if (!rows.length) {
+          tableBody.innerHTML = "<tr><td colspan='2'>No .jam entries found in /jams/SHA256SUMS.</td></tr>";
+          status.textContent = "No jam binaries are currently listed.";
+          return;
+        }
+
+        tableBody.innerHTML = rows.map(({ hash, path }) => {
+          const fileName = path.split("/").pop();
+          const link = path.startsWith("jams/") ? "/" + path : "./" + fileName;
+          return (
+            "<tr>" +
+              "<td><a href='" + link + "' download>" + fileName + "</a></td>" +
+              "<td><code>" + hash + "</code></td>" +
+            "</tr>"
+          );
+        }).join("");
+
+        const latest = [...rows].sort((a, b) => b.path.localeCompare(a.path))[0];
+        const latestName = latest.path.split("/").pop();
+        const latestHref = latest.path.startsWith("jams/") ? "/" + latest.path : "./" + latestName;
+        latestLink.href = latestHref;
+        latestLink.download = latestName;
+        latestLink.hidden = false;
+
+        status.textContent = "Loaded " + rows.length + " jam file checksum(s).";
+      } catch (error) {
+        tableBody.innerHTML = "<tr><td colspan='2'>Unable to load checksum manifest.</td></tr>";
+        status.textContent = "Error loading /jams/SHA256SUMS: " + error.message;
+        status.classList.add("error");
+      }
+    }
+
+    loadHashes();
+  </script>
+
+  <div class="admin-section">
+    <h2>Admin</h2>
+    <p class="meta">Trigger a new state jam (runs <code>make-jam.sh hash</code> on the server).</p>
+    <div class="admin-row">
+      <input type="password" id="api-key-input" placeholder="API key" autocomplete="off">
+      <button class="button" id="run-btn">Run make-jam</button>
+    </div>
+    <p class="job-indicator">
+      <span class="dot" id="job-dot"></span>
+      <span id="job-label">Idle</span>
+    </p>
+    <div class="output-box" id="job-output"></div>
+  </div>
+
+  <script>
+    (function () {
+      const KEY_STORAGE = "nj_api_key";
+      const keyInput = document.getElementById("api-key-input");
+      const runBtn = document.getElementById("run-btn");
+      const dot = document.getElementById("job-dot");
+      const label = document.getElementById("job-label");
+      const output = document.getElementById("job-output");
+
+      const saved = localStorage.getItem(KEY_STORAGE);
+      if (saved) keyInput.value = saved;
+
+      function setIndicator(state, text) {
+        dot.className = "dot" + (state ? " " + state : "");
+        label.textContent = text;
+      }
+
+      async function checkStatus() {
+        try {
+          const res = await fetch("/api/status");
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.running) {
+            setIndicator("active", "Job running\u2026");
+            runBtn.disabled = true;
+          }
+        } catch (_) {}
+      }
+
+      runBtn.addEventListener("click", async function () {
+        const key = keyInput.value.trim();
+        if (!key) {
+          keyInput.focus();
+          return;
+        }
+        localStorage.setItem(KEY_STORAGE, key);
+
+        runBtn.disabled = true;
+        output.style.display = "block";
+        output.textContent = "";
+        setIndicator("active", "Job running\u2026");
+
+        try {
+          const res = await fetch("/api/make-jam", {
+            method: "POST",
+            headers: { "X-API-Key": key },
+          });
+          const data = await res.json();
+          output.textContent = data.output || "(no output)";
+
+          if (data.success) {
+            setIndicator("done", "Completed successfully");
+            loadHashes();
+          } else {
+            setIndicator("fail", "Failed (HTTP " + res.status + ")");
+          }
+        } catch (err) {
+          output.textContent = err.message;
+          setIndicator("fail", "Request error");
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+      checkStatus();
+    })();
+  </script>
+</body>
+</html>
