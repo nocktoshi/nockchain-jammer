@@ -1,0 +1,6 @@
+# Rust
+api/target/
+**/*.rs.bk
+
+# OS
+.DS_Store
