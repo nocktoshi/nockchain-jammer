@@ -1,5 +1,7 @@
 # nockchain-jammer
 
+<img width="632" height="395" alt="image-removebg-preview (1)" src="https://github.com/user-attachments/assets/7a806595-0ad4-49fd-b696-aa4f8f047790" />
+
 Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verification, and provides an API to trigger new jam builds from the website.
 
 ## Components
