@@ -102,6 +102,12 @@ sudo -u jammer -E bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; cargo build
 # Install files
 log_info "Installing files..."
 
+# Stop service before updating binary (to avoid "Text file busy")
+if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    log_info "Stopping existing service before updating binary..."
+    systemctl stop "$SERVICE_NAME"
+fi
+
 # Install binary
 cp "$INSTALL_DIR/api/target/release/nockchain-jammer-api" "$API_BINARY_PATH"
 chmod +x "$API_BINARY_PATH"
