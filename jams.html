@@ -142,37 +142,13 @@
     }
 
     .job-indicator {
-      font-size: 0.88rem;
+      font-size: 0.92rem;
       color: #555;
       margin: 0.4rem 0;
     }
 
-    .job-indicator .dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #999;
-      margin-right: 0.35rem;
-      vertical-align: middle;
-    }
-
-    .job-indicator .dot.active {
-      background: #e8a500;
-      animation: pulse 1s infinite;
-    }
-
-    .job-indicator .dot.done {
-      background: #2a7d2a;
-    }
-
-    .job-indicator .dot.fail {
-      background: #9f1d1d;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    .job-indicator .icon {
+      margin-right: 0.3rem;
     }
 
     .output-box {
@@ -306,13 +282,13 @@
 
   <div class="admin-section">
     <h2>Admin</h2>
-    <p class="meta">Trigger a new state jam (runs <code>make-jam.sh hash</code> on the server).</p>
+    <p class="meta">Export a new state jam from the current chain tip and update checksums.</p>
     <div class="admin-row">
       <input type="password" id="api-key-input" placeholder="API key" autocomplete="off">
       <button class="button" id="run-btn">Run make-jam</button>
     </div>
     <p class="job-indicator">
-      <span class="dot" id="job-dot"></span>
+      <span class="icon" id="job-icon">○</span>
       <span id="job-label">Idle</span>
     </p>
     <div class="output-box" id="job-output"></div>
@@ -323,29 +299,38 @@
       const KEY_STORAGE = "nj_api_key";
       const keyInput = document.getElementById("api-key-input");
       const runBtn = document.getElementById("run-btn");
-      const dot = document.getElementById("job-dot");
+      const icon = document.getElementById("job-icon");
       const label = document.getElementById("job-label");
       const output = document.getElementById("job-output");
+      let polling = null;
 
       const saved = localStorage.getItem(KEY_STORAGE);
       if (saved) keyInput.value = saved;
 
+      const ICONS = { idle: "\u25CB", running: "\uD83D\uDFE2", done: "\u2705", fail: "\u274C" };
+
       function setIndicator(state, text) {
-        dot.className = "dot" + (state ? " " + state : "");
+        icon.textContent = ICONS[state] || ICONS.idle;
         label.textContent = text;
       }
 
-      async function checkStatus() {
+      async function pollStatus() {
         try {
           const res = await fetch("/api/status");
           if (!res.ok) return;
           const data = await res.json();
           if (data.running) {
-            setIndicator("active", "Job running\u2026");
+            setIndicator("running", "Job running\u2026");
             runBtn.disabled = true;
+          } else if (runBtn.disabled && icon.textContent === ICONS.running) {
+            setIndicator("idle", "Idle");
+            runBtn.disabled = false;
           }
         } catch (_) {}
       }
+
+      polling = setInterval(pollStatus, 3000);
+      pollStatus();
 
       runBtn.addEventListener("click", async function () {
         const key = keyInput.value.trim();
@@ -358,7 +343,7 @@
         runBtn.disabled = true;
         output.style.display = "block";
         output.textContent = "";
-        setIndicator("active", "Job running\u2026");
+        setIndicator("running", "Job running\u2026");
 
         try {
           const res = await fetch("/api/make-jam", {
@@ -381,8 +366,6 @@
           runBtn.disabled = false;
         }
       });
-
-      checkStatus();
     })();
   </script>
 </body>

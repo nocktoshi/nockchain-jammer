@@ -68,7 +68,7 @@ async fn make_jam(
 
     let result = Command::new("bash")
         .arg(&state.script_path)
-        .arg("hash")
+        .arg("jam")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

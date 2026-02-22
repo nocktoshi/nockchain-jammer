@@ -19,6 +19,17 @@ Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verif
 | `POST` | `/api/make-jam` | `X-API-Key` header | Run `make-jam.sh hash` and return output |
 | `GET`  | `/api/status` | none | Check if a job is currently running |
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser["jams.html (Browser)"] -->|"POST /api/make-jam"| Nginx
+    Nginx -->|"proxy_pass :3001"| Axum["Axum API (:3001)"]
+    Axum -->|"spawns"| Script["make-jam.sh hash"]
+    Axum -->|"GET /api/status"| Browser
+    Nginx -->|"static files"| StaticFiles["/jams/*.jam, SHA256SUMS"]
+```
+
 ## Deployment
 
 ### 1. Build the API binary
