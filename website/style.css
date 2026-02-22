@@ -1,0 +1,264 @@
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("https://nocknames.com/assets/BerkeleyMono-Regular-B5gW6inG.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(135deg, #000000 0%, #1a1a2e 50%, #16213e 100%);
+  color: #fff;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255,215,0,0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255,215,0,0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 52em;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+  animation: fadeInUp 1s ease-out;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow {
+  from { text-shadow: 0 0 20px rgba(255,215,0,0.5), 0 0 30px rgba(255,215,0,0.3); }
+  to   { text-shadow: 0 0 20px rgba(255,215,0,0.8), 0 0 40px rgba(255,215,0,0.5); }
+}
+
+h1 {
+  font-size: 2.4rem;
+  font-weight: 900;
+  margin: 0 0 0.25rem;
+  color: #ffd700;
+  text-shadow: 0 0 20px rgba(255,215,0,0.5);
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffd700;
+  margin: 0 0 0.5rem;
+}
+
+p { margin: 0.5rem 0; }
+
+.meta {
+  color: rgba(255,255,255,0.55);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+}
+
+.meta a {
+  color: #ffd700;
+  text-decoration: none;
+}
+
+.meta a:hover { text-decoration: underline; }
+
+hr {
+  border: none;
+  border-top: 1px solid rgba(255,215,0,0.25);
+  margin: 1.5rem 0;
+}
+
+a.button, button.button {
+  display: inline-block;
+  margin: 1rem 0 1.25rem;
+  padding: 0.55rem 1.2rem;
+  border: 1px solid rgba(255,215,0,0.3);
+  border-radius: 25px;
+  text-decoration: none;
+  color: #fff;
+  background: rgba(255,215,0,0.1);
+  font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+a.button:hover, button.button:hover {
+  color: #ffd700;
+  border-color: #ffd700;
+  background: rgba(255,215,0,0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(255,215,0,0.3);
+}
+
+button.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.panel {
+  border: 1px solid rgba(255,215,0,0.15);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 1rem;
+  background: rgba(255,255,255,0.03);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+thead th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ffd700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255,215,0,0.06);
+  border-bottom: 1px solid rgba(255,215,0,0.15);
+  padding: 0.7rem 0.8rem;
+}
+
+tbody td {
+  font-size: 0.78rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 0.6rem 0.8rem;
+  vertical-align: top;
+  color: rgba(255,255,255,0.8);
+}
+
+tbody tr:last-child td { border-bottom: 0; }
+
+tbody tr:hover td { background: rgba(255,215,0,0.04); }
+
+tbody td a {
+  color: #ffd700;
+  text-decoration: none;
+}
+
+tbody td a:hover { text-decoration: underline; }
+
+code {
+  font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  word-break: break-all;
+  color: rgba(255,255,255,0.6);
+}
+
+.file-col { width: 26%; }
+.hash-col { width: 74%; }
+
+.status {
+  margin-top: 0.75rem;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.78rem;
+}
+
+.status.error { color: #ff6b6b; }
+
+.admin-section {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255,215,0,0.15);
+}
+
+.admin-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+
+.admin-row input[type="password"] {
+  flex: 1;
+  max-width: 20em;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid rgba(255,215,0,0.25);
+  border-radius: 25px;
+  font-size: 0.78rem;
+  font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.admin-row input[type="password"]::placeholder {
+  color: rgba(255,255,255,0.3);
+}
+
+.admin-row input[type="password"]:focus {
+  border-color: #ffd700;
+  box-shadow: 0 0 8px rgba(255,215,0,0.2);
+}
+
+.job-indicator {
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.55);
+  margin: 0.4rem 0;
+}
+
+.job-indicator .icon { margin-right: 0.3rem; }
+
+.output-box {
+  margin-top: 0.75rem;
+  padding: 0.8rem 1rem;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,215,0,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 8px;
+  font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 16em;
+  overflow-y: auto;
+  display: none;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  color: rgba(255,255,255,0.45);
+  text-decoration: none;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  transition: color 0.2s;
+}
+
+.back-link:hover { color: #ffd700; }
+
+@media (max-width: 760px) {
+  .container { padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.6rem; }
+  .file-col { width: 34%; }
+  .hash-col { width: 66%; }
+  .admin-row { flex-direction: column; align-items: stretch; }
+  .admin-row input[type="password"] { max-width: none; }
+}

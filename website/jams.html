@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nockchain State Jams</title>
+  <meta name="description" content="Download Nockchain state jam binaries and verify SHA-256 checksums.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <a class="back-link" href="/">&larr; nockchain.net</a>
+    <h1>State Jams</h1>
+    <p class="meta">Download state jam binaries and verify each file with SHA-256.</p>
+    <p>
+      <a class="button" id="latest-link" href="#" download hidden>Download latest .jam</a>
+    </p>
+    <p class="meta">
+      Checksum source:
+      <a href="/jams/SHA256SUMS">/jams/SHA256SUMS</a>
+    </p>
+
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th class="file-col">File</th>
+            <th class="hash-col">SHA-256</th>
+          </tr>
+        </thead>
+        <tbody id="hash-table-body">
+          <tr>
+            <td colspan="2">Loading checksums...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p id="status" class="status"></p>
+
+    <script>
+      async function loadHashes() {
+        const tableBody = document.getElementById("hash-table-body");
+        const status = document.getElementById("status");
+        const latestLink = document.getElementById("latest-link");
+
+        try {
+          const response = await fetch("/jams/SHA256SUMS", { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error("HTTP " + response.status);
+          }
+
+          const text = await response.text();
+          const rows = [];
+
+          for (const rawLine of text.split("\n")) {
+            const line = rawLine.trim();
+            if (!line) continue;
+
+            const match = line.match(/^([a-fA-F0-9]{64})\s+(.+)$/);
+            if (!match) continue;
+
+            const hash = match[1].toLowerCase();
+            const path = match[2].trim();
+            if (!path.endsWith(".jam")) continue;
+
+            const cleanPath = path.replace(/^\.?\//, "");
+            rows.push({ hash, path: cleanPath });
+          }
+
+          rows.sort((a, b) => a.path.localeCompare(b.path));
+
+          if (!rows.length) {
+            tableBody.innerHTML = "<tr><td colspan='2'>No .jam entries found in /jams/SHA256SUMS.</td></tr>";
+            status.textContent = "No jam binaries are currently listed.";
+            return;
+          }
+
+          tableBody.innerHTML = rows.map(({ hash, path }) => {
+            const fileName = path.split("/").pop();
+            const link = path.startsWith("jams/") ? "/" + path : "./" + fileName;
+            return (
+              "<tr>" +
+                "<td><a href='" + link + "' download>" + fileName + "</a></td>" +
+                "<td><code>" + hash + "</code></td>" +
+              "</tr>"
+            );
+          }).join("");
+
+          const latest = [...rows].sort((a, b) => b.path.localeCompare(a.path))[0];
+          const latestName = latest.path.split("/").pop();
+          const latestHref = latest.path.startsWith("jams/") ? "/" + latest.path : "./" + latestName;
+          latestLink.href = latestHref;
+          latestLink.download = latestName;
+          latestLink.hidden = false;
+
+          status.textContent = "Loaded " + rows.length + " jam file checksum(s).";
+        } catch (error) {
+          tableBody.innerHTML = "<tr><td colspan='2'>Unable to load checksum manifest.</td></tr>";
+          status.textContent = "Error loading /jams/SHA256SUMS: " + error.message;
+          status.classList.add("error");
+        }
+      }
+
+      loadHashes();
+    </script>
+
+    <div class="admin-section">
+      <h2>Admin</h2>
+      <p class="meta">Export a new state jam from the current chain tip and update checksums.</p>
+      <div class="admin-row">
+        <input type="password" id="api-key-input" placeholder="API key" autocomplete="off">
+        <button class="button" id="run-btn"><img src="jam-icon.png" alt="" style="height:1.2em;vertical-align:middle;margin-right:0.4em;filter:brightness(0) invert(1);">Make Jam</button>
+      </div>
+      <p class="job-indicator">
+        <span class="icon" id="job-icon">○</span>
+        <span id="job-label">Idle</span>
+      </p>
+      <div class="output-box" id="job-output"></div>
+    </div>
+
+    <script>
+      (function () {
+        const KEY_STORAGE = "nj_api_key";
+        const keyInput = document.getElementById("api-key-input");
+        const runBtn = document.getElementById("run-btn");
+        const icon = document.getElementById("job-icon");
+        const label = document.getElementById("job-label");
+        const output = document.getElementById("job-output");
+        let polling = null;
+
+        const saved = localStorage.getItem(KEY_STORAGE);
+        if (saved) keyInput.value = saved;
+
+        const ICONS = { idle: "\u25CB", running: "\uD83D\uDFE2", done: "\u2705", fail: "\u274C" };
+
+        function setIndicator(state, text) {
+          icon.textContent = ICONS[state] || ICONS.idle;
+          label.textContent = text;
+        }
+
+        async function pollStatus() {
+          try {
+            const res = await fetch("/api/status");
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.running) {
+              setIndicator("running", "Job running\u2026");
+              runBtn.disabled = true;
+            } else if (runBtn.disabled && icon.textContent === ICONS.running) {
+              setIndicator("idle", "Idle");
+              runBtn.disabled = false;
+            }
+          } catch (_) {}
+        }
+
+        polling = setInterval(pollStatus, 3000);
+        pollStatus();
+
+        runBtn.addEventListener("click", async function () {
+          const key = keyInput.value.trim();
+          if (!key) {
+            keyInput.focus();
+            return;
+          }
+          localStorage.setItem(KEY_STORAGE, key);
+
+          runBtn.disabled = true;
+          output.style.display = "block";
+          output.textContent = "";
+          setIndicator("running", "Job running\u2026");
+
+          try {
+            const res = await fetch("/api/make-jam", {
+              method: "POST",
+              headers: { "X-API-Key": key },
+            });
+            const data = await res.json();
+            output.textContent = data.output || "(no output)";
+
+            if (data.success) {
+              setIndicator("done", "Completed successfully");
+              loadHashes();
+            } else {
+              setIndicator("fail", "Failed (HTTP " + res.status + ")");
+            }
+          } catch (err) {
+            output.textContent = err.message;
+            setIndicator("fail", "Request error");
+          } finally {
+            runBtn.disabled = false;
+          }
+        });
+      })();
+    </script>
+  </div>
+</body>
+</html>

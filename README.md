@@ -6,9 +6,9 @@ Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verif
 
 ## Components
 
-| File | Purpose |
-|------|---------|
-| `jams.html` | Frontend — lists jam files, checksums, and admin trigger UI |
+| File / Dir | Purpose |
+|------------|---------|
+| `website/` | Frontend — `jams.html`, icons, and static assets |
 | `make-jam.sh` | Stops the nockchain service, hashes `.jam` files, writes `SHA256SUMS`, restarts service |
 | `api/` | Axum (Rust) API server that runs `make-jam.sh` on demand |
 
@@ -51,8 +51,10 @@ scp api/target/release/nockchain-jammer-api server:/usr/local/bin/
 scp make-jam.sh server:/usr/local/bin/
 chmod +x /usr/local/bin/make-jam.sh
 
-# Copy the HTML
-scp jams.html server:/usr/share/nginx/html/jams/index.html
+# Copy the website (HTML + assets)
+scp website/jams.html server:/usr/share/nginx/html/jams/index.html
+scp website/style.css server:/usr/share/nginx/html/jams/style.css
+scp website/jam-icon.png server:/usr/share/nginx/html/jams/jam-icon.png
 ```
 
 ### 3. Set up the systemd service
