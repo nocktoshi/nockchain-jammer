@@ -58,40 +58,26 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 pub async fn stop_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Stopping service: {}", config.nockchain_service);
 
-    let status = Command::new("sudo")
-        .args(["systemctl", "stop", &config.nockchain_service])
+    let output = Command::new("systemctl")
+        .args(["stop", &config.nockchain_service])
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .status()
+        .output()
         .await
         .context("Failed to run systemctl stop")?;
 
-    if !status.success() {
-        bail!(
-            "systemctl stop failed with exit code {:?}",
-            status.code()
-        );
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[jammer] systemctl stop returned {}: {}", output.status, stderr.trim());
     }
 
-    loop {
-        let check = Command::new("sudo")
-            .args([
-                "systemctl",
-                "is-active",
-                "--quiet",
-                &config.nockchain_service,
-            ])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await?;
+    let check = Command::new("systemctl")
+        .args(["is-active", "--quiet", &config.nockchain_service])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await?;
 
-        if !check.success() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+    if check.status.success() {
+        bail!("Service {} is still active after stop attempt", config.nockchain_service);
     }
 
     eprintln!("[jammer] Service stopped: {}", config.nockchain_service);
@@ -101,8 +87,8 @@ pub async fn stop_service(config: &JammerConfig) -> Result<()> {
 pub async fn start_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Starting service: {}", config.nockchain_service);
 
-    let status = Command::new("sudo")
-        .args(["systemctl", "start", &config.nockchain_service])
+    let status = Command::new("systemctl")
+        .args(["start", &config.nockchain_service])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::inherit())
@@ -118,7 +104,7 @@ pub async fn start_service(config: &JammerConfig) -> Result<()> {
     }
 
     eprintln!(
-        "[jammer] Service start initiated: {}",
+        "[jammer] Service started: {}",
         config.nockchain_service
     );
     Ok(())
