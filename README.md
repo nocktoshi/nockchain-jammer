@@ -38,12 +38,12 @@ flowchart LR
 Run this one-liner on your server (requires root/sudo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh | bash
 ```
 
 **Before running, you can inspect the script:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh
+curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh
 ```
 
 This automated installer will:

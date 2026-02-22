@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # nockchain-jammer installer
-# Run with: curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh | bash
+# Run with: curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh | bash
 
 # Update this to your actual repository URL
-REPO_URL="https://github.com/your-repo/nockchain-jammer"
+REPO_URL="https://github.com/nocktoshi/nockchain-jammer"
 INSTALL_DIR="/opt/nockchain-jammer"
 SERVICE_NAME="nockchain-jammer-api"
 API_PORT="3001"
