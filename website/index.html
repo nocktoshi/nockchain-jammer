@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
   <meta name="description" content="Download Nockchain state jam binaries and verify SHA-256 checksums.">
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div class="container">
     <a class="back-link" href="/">&larr; nockchain.net</a>
@@ -86,8 +88,8 @@
             const tag = i === 0 ? " <span class='tag-newest'>newest</span>" : "";
             return (
               "<tr>" +
-                "<td><a href='" + link + "' download>" + fileName + "</a>" + tag + "</td>" +
-                "<td><code>" + hash + "</code></td>" +
+              "<td><a href='" + link + "' download>" + fileName + "</a>" + tag + "</td>" +
+              "<td><code>" + hash + "</code></td>" +
               "</tr>"
             );
           }).join("");
@@ -114,7 +116,8 @@
       <p class="meta">Export a new state jam from the current chain tip and update checksums.</p>
       <div class="admin-row">
         <input type="password" id="api-key-input" placeholder="API key" autocomplete="off">
-        <button class="button" id="run-btn"><img src="jam-icon.png" alt="" style="height:1.2em;vertical-align:middle;margin-right:0.4em;">Make Jam</button>
+        <button class="button" id="run-btn"><img src="jam-icon.png" alt=""
+            style="height:1.2em;vertical-align:middle;margin-right:0.4em;">Make Jam</button>
       </div>
       <p class="job-indicator">
         <span class="icon" id="job-icon">○</span>
@@ -123,7 +126,10 @@
       </p>
       <div class="output-box" id="job-output"></div>
     </div>
-    <a href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam Vector by Giuseppe Ramos</a>
+    <p><a style="color: #323232; text-decoration: none;"
+        href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam Vector by
+        Giuseppe Ramos</a>
+    </p>
     <script>
       (function () {
         const KEY_STORAGE = "nj_api_key";
@@ -182,7 +188,7 @@
               }
               detail.textContent = parts.length ? parts.join(" \u00b7 ") : "";
             }
-          } catch (_) {}
+          } catch (_) { }
         }
 
         polling = setInterval(pollStatus, 3000);
@@ -226,4 +232,5 @@
     </script>
   </div>
 </body>
+
 </html>
