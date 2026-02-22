@@ -30,6 +30,9 @@ flowchart LR
     Nginx -->|"static files"| StaticFiles["/jams/*.jam, SHA256SUMS"]
 ```
 
+## Front-End
+<img width="837" height="630" alt="image" src="https://github.com/user-attachments/assets/0ee6a462-1a62-4a1a-8dfc-b9e23e6d1b59" />
+
 ## Deployment
 
 ### 1. Build the API binary
