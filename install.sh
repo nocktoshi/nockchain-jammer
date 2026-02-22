@@ -72,11 +72,27 @@ mkdir -p "$JAMMER_HOME"
 chown jammer:jammer "$JAMMER_HOME"
 
 # Install Rust via rustup for jammer user (system cargo from apt is too old)
-JAMMER_CARGO="$JAMMER_HOME/.cargo/bin/cargo"
+JAMMER_RUSTUP="$JAMMER_HOME/.rustup"
+JAMMER_CARGO_HOME="$JAMMER_HOME/.cargo"
+JAMMER_CARGO="$JAMMER_CARGO_HOME/bin/cargo"
+JAMMER_RUSTUP_BIN="$JAMMER_CARGO_HOME/bin/rustup"
+
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_info "Installing Rust toolchain for jammer user..."
-    sudo -u jammer -H bash -c \
-        'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
+    sudo -u jammer \
+        RUSTUP_HOME="$JAMMER_RUSTUP" \
+        CARGO_HOME="$JAMMER_CARGO_HOME" \
+        bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
+fi
+
+# Ensure a default toolchain is configured
+if [[ -x "$JAMMER_RUSTUP_BIN" ]]; then
+    if ! sudo -u jammer RUSTUP_HOME="$JAMMER_RUSTUP" CARGO_HOME="$JAMMER_CARGO_HOME" \
+        "$JAMMER_RUSTUP_BIN" show active-toolchain >/dev/null 2>&1; then
+        log_info "Setting default Rust toolchain..."
+        sudo -u jammer RUSTUP_HOME="$JAMMER_RUSTUP" CARGO_HOME="$JAMMER_CARGO_HOME" \
+            "$JAMMER_RUSTUP_BIN" default stable
+    fi
 fi
 
 if [[ ! -x "$JAMMER_CARGO" ]]; then
@@ -84,7 +100,7 @@ if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_error "Contents of $JAMMER_HOME: $(ls -la "$JAMMER_HOME" 2>&1)"
     exit 1
 fi
-log_info "Using cargo: $("$JAMMER_CARGO" --version)"
+log_info "Using cargo: $(sudo -u jammer RUSTUP_HOME="$JAMMER_RUSTUP" CARGO_HOME="$JAMMER_CARGO_HOME" "$JAMMER_CARGO" --version)"
 
 # Clone or update repository
 git config --global --add safe.directory "$INSTALL_DIR"
@@ -99,7 +115,10 @@ fi
 # Build the API binary as jammer user (not root)
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer -H "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
+sudo -u jammer \
+    RUSTUP_HOME="$JAMMER_RUSTUP" \
+    CARGO_HOME="$JAMMER_CARGO_HOME" \
+    "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
 
 # Install files
 log_info "Installing files..."
