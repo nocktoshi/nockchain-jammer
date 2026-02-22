@@ -90,58 +90,48 @@ async fn make_jam(
     drop(job);
 
     let log_file = std::env::temp_dir().join("nockchain-jammer-last.log");
-    let exit_file = std::env::temp_dir().join("nockchain-jammer-last.exit");
-
-    let _ = std::fs::remove_file(&exit_file);
     let _ = std::fs::write(&log_file, "");
 
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
     let wrapper = format!(
-        "bash {script} jam 2>&1 | tee {log} >&2; echo ${{PIPESTATUS[0]}} > {exit}",
+        "bash {script} jam 2>&1 | tee {log} >&2; exit ${{PIPESTATUS[0]}}",
         script = shell_escape(&state.script_path),
         log = shell_escape(&log_file.to_string_lossy()),
-        exit = shell_escape(&exit_file.to_string_lossy()),
     );
 
-    let spawn_result = Command::new("setsid")
-        .arg("bash")
+    let status = Command::new("bash")
         .arg("-c")
         .arg(&wrapper)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .kill_on_drop(false)
-        .spawn();
+        .status()
+        .await;
 
-    if let Err(e) = spawn_result {
-        eprintln!("[make-jam] failed to spawn: {e}");
-        let mut job = state.job.lock().await;
-        job.running = false;
-        job.started_at = None;
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(JobResult {
-                success: false,
-                output: format!("failed to spawn script: {e}"),
-            }),
-        );
-    }
-
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        if exit_file.exists() {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            break;
+    let exit_status = match status {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[make-jam] failed to run script: {e}");
+            let mut job = state.job.lock().await;
+            job.running = false;
+            job.started_at = None;
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(JobResult {
+                    success: false,
+                    output: format!("failed to run script: {e}"),
+                }),
+            );
         }
-    }
+    };
 
     let elapsed = start.elapsed();
     let output_text = std::fs::read_to_string(&log_file).unwrap_or_default();
-    let exit_code_str = std::fs::read_to_string(&exit_file).unwrap_or_default();
-    let exit_code: i32 = exit_code_str.trim().parse().unwrap_or(-1);
-    let success = exit_code == 0;
+    let exit_code = exit_status.code().unwrap_or(-1);
+    let success = exit_status.success();
 
     if success {
         eprintln!("[make-jam] completed successfully in {:.1}s", elapsed.as_secs_f64());
