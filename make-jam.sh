@@ -148,6 +148,7 @@ write_manifest() {
   fi
 
   mv "$tmp" "$MANIFEST"
+  chmod 644 "$MANIFEST"
   echo "Manifest written: $MANIFEST"
 }
 
@@ -203,6 +204,7 @@ run_with_service_cycle() {
   trap cleanup EXIT
   stop_service_and_wait
   "$@"
+  start_service_and_wait
 }
 
 main() {
@@ -230,3 +232,4 @@ main() {
 }
 
 main "$@"
+exit 0
