@@ -67,18 +67,20 @@ apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
 if ! command -v cargo >/dev/null 2>&1; then
     log_info "Installing Rust..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source $HOME/.cargo/env
+    # Source cargo environment if it exists (rustup should have created it)
+    if [[ -f "$HOME/.cargo/env" ]]; then
+        source $HOME/.cargo/env
+    fi
     export PATH="$HOME/.cargo/bin:$PATH"
 
-    # Set default toolchain if not set
-    if ! command -v rustup >/dev/null 2>&1; then
-        log_error "Rustup not found after Rust installation."
-        exit 1
-    fi
-
-    if ! rustup show active-toolchain >/dev/null 2>&1; then
-        log_info "Setting up Rust toolchain..."
-        rustup default stable
+    # Configure Rust toolchain if using rustup
+    if command -v rustup >/dev/null 2>&1; then
+        if ! rustup show active-toolchain >/dev/null 2>&1; then
+            log_info "Setting up Rust toolchain..."
+            rustup default stable
+        fi
+    else
+        log_info "Rust appears to be installed via package manager (no rustup found)"
     fi
 fi
 
@@ -96,13 +98,21 @@ fi
 # Build the API binary
 log_info "Building API binary..."
 cd api
-# Ensure Rust environment is available
-source $HOME/.cargo/env
+# Ensure Rust environment is available (if using rustup)
+if [[ -f "$HOME/.cargo/env" ]]; then
+    source $HOME/.cargo/env
+fi
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# Verify cargo is available
+# Verify cargo is available and working
 if ! command -v cargo >/dev/null 2>&1; then
-    log_error "Cargo not found after Rust installation. Please check Rust installation."
+    log_error "Cargo not found. Please ensure Rust is properly installed."
+    exit 1
+fi
+
+# Test that cargo actually works
+if ! cargo --version >/dev/null 2>&1; then
+    log_error "Cargo command failed. Please check Rust installation."
     exit 1
 fi
 
