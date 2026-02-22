@@ -34,6 +34,7 @@ fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode>
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if key != expected {
+        eprintln!("Unauthorized API key: {key}");
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(())
