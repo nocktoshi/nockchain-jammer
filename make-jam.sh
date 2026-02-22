@@ -235,5 +235,7 @@ main() {
 }
 
 main "$@"
+echo "DEBUG: jobs before disown: $(jobs -pr | tr '\n' ' ')"
+disown -a 2>/dev/null || true
 echo "DEBUG: main returned; exiting script"
 exit 0
