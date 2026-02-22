@@ -81,8 +81,7 @@ get_tip_block() {
 }
 
 export_jam() {
-  local block_number
-  block_number="$(get_tip_block)"
+  local block_number="${1:?block_number required}"
   echo "Current tip block: $block_number"
 
   mkdir -p "$JAMS_DIR"
@@ -158,7 +157,8 @@ write_manifest() {
 }
 
 export_and_hash() {
-  export_jam
+  local block_number="${1:?block_number required}"
+  export_jam "$block_number"
   write_manifest
 }
 
@@ -216,7 +216,10 @@ main() {
 
   case "$1" in
     jam)
-      run_with_service_cycle export_and_hash
+      local tip
+      tip="$(get_tip_block)"
+      echo "Fetched tip block $tip while service is still running"
+      run_with_service_cycle export_and_hash "$tip"
       ;;
     hash)
       run_with_service_cycle write_manifest
