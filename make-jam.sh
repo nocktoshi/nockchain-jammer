@@ -56,20 +56,13 @@ get_tip_block() {
   fi
 
   local response
-  response=$(grpcurl -plaintext -d '{}' \
+  response=$(grpcurl -plaintext \
+    -d '{"page":{"clientPageItemsLimit":1}}' \
     "$NOCKCHAIN_RPC" \
     nockchain.public.v2.NockchainBlockService/GetBlocks 2>&1)
 
   local block_number
-  block_number=$(echo "$response" | grep -oP '"height"\s*:\s*"\K[0-9]+' || true)
-
-  if [[ -z "$block_number" ]]; then
-    block_number=$(echo "$response" | grep -oP '"height"\s*:\s*\K[0-9]+' || true)
-  fi
-
-  if [[ -z "$block_number" ]]; then
-    block_number=$(echo "$response" | grep -oP '"blockHeight"\s*:\s*"\K[0-9]+' || true)
-  fi
+  block_number=$(echo "$response" | grep -oP '"currentHeight"\s*:\s*"\K[0-9]+' || true)
 
   if [[ -z "$block_number" ]]; then
     echo "ERROR: Could not parse block height from gRPC response:" >&2
