@@ -69,6 +69,17 @@ if ! command -v cargo >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     source $HOME/.cargo/env
     export PATH="$HOME/.cargo/bin:$PATH"
+
+    # Set default toolchain if not set
+    if ! command -v rustup >/dev/null 2>&1; then
+        log_error "Rustup not found after Rust installation."
+        exit 1
+    fi
+
+    if ! rustup show active-toolchain >/dev/null 2>&1; then
+        log_info "Setting up Rust toolchain..."
+        rustup default stable
+    fi
 fi
 
 # Clone or update repository
@@ -85,6 +96,16 @@ fi
 # Build the API binary
 log_info "Building API binary..."
 cd api
+# Ensure Rust environment is available
+source $HOME/.cargo/env
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Verify cargo is available
+if ! command -v cargo >/dev/null 2>&1; then
+    log_error "Cargo not found after Rust installation. Please check Rust installation."
+    exit 1
+fi
+
 cargo build --release
 
 # Install files

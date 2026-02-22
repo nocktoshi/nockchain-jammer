@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/ins
 ```
 
 This automated installer will:
-- ✅ Install all dependencies (Rust, nginx, build tools)
+- ✅ Install all dependencies (Rust toolchain, nginx, build tools)
 - ✅ Build and install the API binary from source
 - ✅ Configure systemd service with auto-restart
 - ✅ Set up nginx for both API proxy AND static website serving
