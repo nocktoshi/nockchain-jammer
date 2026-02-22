@@ -9,6 +9,7 @@ NOCKCHAIN_SERVICE="${NOCKCHAIN_SERVICE:-nockchain}"
 NOCKCHAIN_RPC="${NOCKCHAIN_RPC:-localhost:5556}"
 NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-/root/.cargo/bin/nockchain}"
 NOCKCHAIN_DIR="${NOCKCHAIN_DIR:-/root/nockchain}"
+NOCKCHAIN_USER="${NOCKCHAIN_USER:-}"
 
 HASHER_BIN=""
 SERVICE_WAS_STOPPED_BY_SCRIPT=0
@@ -28,6 +29,7 @@ Optional env overrides:
   NOCKCHAIN_RPC=localhost:5556
   NOCKCHAIN_BIN=/root/.cargo/bin/nockchain
   NOCKCHAIN_DIR=/root/nockchain
+  NOCKCHAIN_USER=          # run export as this user (via sudo)
 EOF
 }
 
@@ -88,7 +90,11 @@ export_jam() {
   fi
 
   echo "Exporting state jam to: $jam_path (from $NOCKCHAIN_DIR)"
-  (cd "$NOCKCHAIN_DIR" && "$NOCKCHAIN_BIN" --export-state-jam "$jam_path")
+  if [[ -n "$NOCKCHAIN_USER" ]]; then
+    sudo -u "$NOCKCHAIN_USER" bash -c "cd \"$NOCKCHAIN_DIR\" && \"$NOCKCHAIN_BIN\" --export-state-jam \"$jam_path\""
+  else
+    (cd "$NOCKCHAIN_DIR" && "$NOCKCHAIN_BIN" --export-state-jam "$jam_path")
+  fi
   echo "Exported: $jam_path"
 }
 

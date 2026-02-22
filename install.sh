@@ -217,12 +217,24 @@ chown -R jammer:jammer "$JAMS_DIR"
 mkdir -p /var/lib/jammer
 chown jammer:jammer /var/lib/jammer
 
-# Configure sudo for systemctl commands
+# Configure sudo for systemctl and nockchain export commands
 log_info "Configuring sudo permissions..."
 SYSTEMCTL_PATH="$(command -v systemctl)"
-cat > /etc/sudoers.d/nockchain-jammer << EOF
-jammer ALL=(ALL) NOPASSWD: $SYSTEMCTL_PATH stop nockchain, $SYSTEMCTL_PATH start nockchain, $SYSTEMCTL_PATH is-active nockchain
-EOF
+# Detect the nockchain user from env file or .env.example
+NC_USER="${NOCKCHAIN_USER:-}"
+if [[ -z "$NC_USER" ]] && [[ -f /etc/nockchain-jammer.env ]]; then
+    NC_USER=$(grep "^NOCKCHAIN_USER=" /etc/nockchain-jammer.env 2>/dev/null | cut -d'=' -f2 || true)
+fi
+
+cat > /etc/sudoers.d/nockchain-jammer << SUDOEOF
+jammer ALL=(ALL) NOPASSWD: $SYSTEMCTL_PATH stop nockchain, $SYSTEMCTL_PATH start nockchain, $SYSTEMCTL_PATH is-active nockchain, $SYSTEMCTL_PATH is-active --quiet nockchain
+SUDOEOF
+
+# Allow jammer to run commands as the nockchain user (for export)
+if [[ -n "$NC_USER" ]]; then
+    echo "jammer ALL=($NC_USER) NOPASSWD: ALL" >> /etc/sudoers.d/nockchain-jammer
+fi
+
 chmod 440 /etc/sudoers.d/nockchain-jammer
 
 # Update make-jam.sh to use sudo
