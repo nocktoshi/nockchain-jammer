@@ -77,14 +77,13 @@ fi
 log_info "Using cargo: $(sudo -u jammer "$JAMMER_CARGO" --version)"
 
 # Clone or update repository
-if [[ -d "$INSTALL_DIR" ]]; then
+git config --global --add safe.directory "$INSTALL_DIR"
+if [[ -d "$INSTALL_DIR/.git" ]]; then
     log_warn "Installation directory exists, updating..."
-    cd "$INSTALL_DIR"
-    git pull
+    git -C "$INSTALL_DIR" pull
 else
     log_info "Cloning repository..."
     git clone "$REPO_URL" "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
 fi
 
 # Build the API binary as jammer user (not root)
