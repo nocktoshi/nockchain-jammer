@@ -121,3 +121,4 @@ Then update `make-jam.sh` to use `sudo systemctl` instead of bare `systemctl`, o
 |----------|---------|-------------|
 | `API_KEY` | *(empty — prints warning)* | Shared secret for `X-API-Key` header |
 | `SCRIPT_PATH` | `/usr/local/bin/make-jam.sh` | Absolute path to the jam script |
+| `JAMS_DIR` | `/usr/share/nginx/html/jams` | Directory containing `.jam` files (for status count) |

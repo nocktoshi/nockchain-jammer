@@ -13,10 +13,18 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
+struct JobState {
+    running: bool,
+    started_at: Option<Instant>,
+    last_completed: Option<String>,
+    last_success: Option<bool>,
+}
+
 struct AppState {
     api_key: String,
     script_path: String,
-    running: Mutex<bool>,
+    jams_dir: String,
+    job: Mutex<JobState>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +36,13 @@ struct JobResult {
 #[derive(Serialize)]
 struct StatusResult {
     running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    running_for_secs: Option<u64>,
+    jam_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_completed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_success: Option<bool>,
 }
 
 fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> {
@@ -56,8 +71,8 @@ async fn make_jam(
         );
     }
 
-    let mut lock = state.running.lock().await;
-    if *lock {
+    let mut job = state.job.lock().await;
+    if job.running {
         eprintln!("[make-jam] rejected: job already running");
         return (
             StatusCode::CONFLICT,
@@ -67,8 +82,9 @@ async fn make_jam(
             }),
         );
     }
-    *lock = true;
-    drop(lock);
+    job.running = true;
+    job.started_at = Some(Instant::now());
+    drop(job);
 
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
@@ -84,8 +100,9 @@ async fn make_jam(
         Ok(c) => c,
         Err(e) => {
             eprintln!("[make-jam] failed to spawn: {e}");
-            let mut lock = state.running.lock().await;
-            *lock = false;
+            let mut job = state.job.lock().await;
+            job.running = false;
+            job.started_at = None;
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(JobResult {
@@ -125,13 +142,11 @@ async fn make_jam(
     let stdout_out = stdout_task.await.unwrap_or_default();
     let stderr_out = stderr_task.await.unwrap_or_default();
 
-    let mut lock = state.running.lock().await;
-    *lock = false;
-
     let elapsed = start.elapsed();
     let combined = format!("{}{}", stdout_out, stderr_out);
+    let finished_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    match exit_status {
+    let (success, result) = match exit_status {
         Ok(status) => {
             let success = status.success();
             let exit_code = status.code().unwrap_or(-1);
@@ -141,24 +156,57 @@ async fn make_jam(
                 eprintln!("[make-jam] failed with exit code {exit_code} in {:.1}s", elapsed.as_secs_f64());
             }
             let code = if success { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR };
-            (code, Json(JobResult { success, output: combined }))
+            (success, (code, Json(JobResult { success, output: combined })))
         }
         Err(e) => {
             eprintln!("[make-jam] error waiting for process: {e}");
-            (
+            (false, (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(JobResult {
                     success: false,
                     output: format!("{combined}error: {e}"),
                 }),
-            )
+            ))
         }
-    }
+    };
+
+    let mut job = state.job.lock().await;
+    job.running = false;
+    job.started_at = None;
+    job.last_completed = Some(finished_at);
+    job.last_success = Some(success);
+
+    result
+}
+
+fn count_jams(dir: &str) -> usize {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "jam")
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let running = *state.running.lock().await;
-    Json(StatusResult { running })
+    let job = state.job.lock().await;
+    let running_for_secs = job
+        .started_at
+        .map(|t| t.elapsed().as_secs());
+    Json(StatusResult {
+        running: job.running,
+        running_for_secs,
+        jam_count: count_jams(&state.jams_dir),
+        last_completed: job.last_completed.clone(),
+        last_success: job.last_success,
+    })
 }
 
 #[tokio::main]
@@ -171,10 +219,19 @@ async fn main() {
     let script_path = std::env::var("SCRIPT_PATH")
         .unwrap_or_else(|_| "/usr/local/bin/make-jam.sh".into());
 
+    let jams_dir = std::env::var("JAMS_DIR")
+        .unwrap_or_else(|_| "/usr/share/nginx/html/jams".into());
+
     let state = Arc::new(AppState {
         api_key,
         script_path,
-        running: Mutex::new(false),
+        jams_dir,
+        job: Mutex::new(JobState {
+            running: false,
+            started_at: None,
+            last_completed: None,
+            last_success: None,
+        }),
     });
 
     let cors = CorsLayer::new()

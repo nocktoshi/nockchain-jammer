@@ -115,6 +115,7 @@
       <p class="job-indicator">
         <span class="icon" id="job-icon">○</span>
         <span id="job-label">Idle</span>
+        <span id="job-detail" class="meta" style="margin-left:0.6em;"></span>
       </p>
       <div class="output-box" id="job-output"></div>
     </div>
@@ -132,11 +133,27 @@
         const saved = localStorage.getItem(KEY_STORAGE);
         if (saved) keyInput.value = saved;
 
+        const detail = document.getElementById("job-detail");
         const ICONS = { idle: "\u25CB", running: "\uD83D\uDFE2", done: "\u2705", fail: "\u274C" };
 
-        function setIndicator(state, text) {
+        function setIndicator(state, text, extra) {
           icon.textContent = ICONS[state] || ICONS.idle;
           label.textContent = text;
+          detail.textContent = extra || "";
+        }
+
+        function fmtDuration(secs) {
+          if (secs < 60) return secs + "s";
+          var m = Math.floor(secs / 60), s = secs % 60;
+          return m + "m " + s + "s";
+        }
+
+        function fmtAgo(iso) {
+          var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+          if (diff < 60) return "just now";
+          if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+          if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+          return Math.floor(diff / 86400) + "d ago";
         }
 
         async function pollStatus() {
@@ -145,11 +162,21 @@
             if (!res.ok) return;
             const data = await res.json();
             if (data.running) {
-              setIndicator("running", "Job running\u2026");
+              var extra = data.running_for_secs != null ? "(" + fmtDuration(data.running_for_secs) + ")" : "";
+              setIndicator("running", "Job running\u2026", extra);
               runBtn.disabled = true;
             } else if (runBtn.disabled && icon.textContent === ICONS.running) {
               setIndicator("idle", "Idle");
               runBtn.disabled = false;
+            } else if (!runBtn.disabled) {
+              var parts = [];
+              if (data.jam_count != null) parts.push(data.jam_count + " jam" + (data.jam_count !== 1 ? "s" : ""));
+              if (data.last_completed) {
+                var ago = fmtAgo(data.last_completed);
+                var status = data.last_success === true ? "\u2705" : data.last_success === false ? "\u274C" : "";
+                parts.push("last run " + ago + (status ? " " + status : ""));
+              }
+              detail.textContent = parts.length ? parts.join(" \u00b7 ") : "";
             }
           } catch (_) {}
         }

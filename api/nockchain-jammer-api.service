@@ -8,6 +8,7 @@ ExecStart=/usr/local/bin/nockchain-jammer-api
 Environment=API_KEY=CHANGE_ME
 Environment=SCRIPT_PATH=/usr/local/bin/make-jam.sh
 Environment=HTML_ROOT=/usr/share/nginx/html
+Environment=JAMS_DIR=/usr/share/nginx/html/jams
 Restart=on-failure
 RestartSec=5
 
