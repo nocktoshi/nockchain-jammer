@@ -4,14 +4,21 @@ set -euo pipefail
 # nockchain-jammer installer
 # Run with: curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh | bash
 
-# Update this to your actual repository URL
-REPO_URL="https://github.com/nocktoshi/nockchain-jammer"
-INSTALL_DIR="/opt/nockchain-jammer"
-SERVICE_NAME="nockchain-jammer-api"
-API_PORT="3001"
-JAMS_DIR="/usr/share/nginx/html/jams"
-SCRIPT_PATH="/usr/local/bin/make-jam.sh"
-API_BINARY_PATH="/usr/local/bin/nockchain-jammer-api"
+# Load configuration from .env file if it exists
+if [[ -f .env ]]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Default values (can be overridden in .env)
+REPO_URL="${REPO_URL:-https://github.com/nocktoshi/nockchain-jammer}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/nockchain-jammer}"
+SERVICE_NAME="${SERVICE_NAME:-nockchain-jammer-api}"
+API_PORT="${API_PORT:-3001}"
+JAMS_DIR="${JAMS_DIR:-/usr/share/nginx/html/jams}"
+SCRIPT_PATH="${SCRIPT_PATH:-/usr/local/bin/make-jam.sh}"
+API_BINARY_PATH="${API_BINARY_PATH:-/usr/local/bin/nockchain-jammer-api}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -97,14 +104,42 @@ cp ../website/index.html "$JAMS_DIR/index.html"
 cp ../website/style.css "$JAMS_DIR/"
 cp ../website/jam-icon.png "$JAMS_DIR/" 2>/dev/null || true
 
+# Set up runtime environment file
+if [[ ! -f /etc/nockchain-jammer.env ]]; then
+    log_info "Creating runtime configuration file..."
+    # Copy .env if it exists, otherwise use .env.example
+    if [[ -f .env ]]; then
+        cp .env /etc/nockchain-jammer.env
+        log_info "Copied custom configuration from .env"
+    else
+        cp .env.example /etc/nockchain-jammer.env
+        log_info "Copied default configuration from .env.example"
+    fi
+else
+    log_info "Runtime configuration file already exists, preserving..."
+fi
+
 # Generate or preserve API key
-if [[ -f /etc/nockchain-jammer.env ]] && grep -q "^API_KEY=" /etc/nockchain-jammer.env; then
-    API_KEY=$(grep "^API_KEY=" /etc/nockchain-jammer.env | cut -d'=' -f2)
-    log_info "Using existing API key: ${API_KEY:0:8}..."
+if grep -q "^API_KEY=" /etc/nockchain-jammer.env && [[ -n "$(grep "^API_KEY=" /etc/nockchain-jammer.env | cut -d'=' -f2 | xargs)" ]]; then
+    API_KEY=$(grep "^API_KEY=" /etc/nockchain-jammer.env | cut -d'=' -f2 | xargs)
+    log_info "Using existing API key from /etc/nockchain-jammer.env: ${API_KEY:0:8}..."
+elif [[ -n "${API_KEY:-}" ]]; then
+    log_info "Using API key from .env file: ${API_KEY:0:8}..."
+    # Ensure API_KEY line exists, then update it
+    if grep -q "^API_KEY=" /etc/nockchain-jammer.env; then
+        sed -i "s|^API_KEY=.*|API_KEY=$API_KEY|" /etc/nockchain-jammer.env
+    else
+        echo "API_KEY=$API_KEY" >> /etc/nockchain-jammer.env
+    fi
 else
     API_KEY=$(openssl rand -hex 32)
     log_info "Generated new API key: ${API_KEY:0:8}..."
-    echo "API_KEY=$API_KEY" > /etc/nockchain-jammer.env
+    # Ensure API_KEY line exists, then update it
+    if grep -q "^API_KEY=" /etc/nockchain-jammer.env; then
+        sed -i "s|^API_KEY=.*|API_KEY=$API_KEY|" /etc/nockchain-jammer.env
+    else
+        echo "API_KEY=$API_KEY" >> /etc/nockchain-jammer.env
+    fi
 fi
 
 # Create systemd service

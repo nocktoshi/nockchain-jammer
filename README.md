@@ -55,6 +55,13 @@ This automated installer will:
 - ✅ Generate a secure random API key
 - ✅ Test the installation
 
+**Optional: Customize settings with a `.env` file before running:**
+```bash
+cp .env.example .env
+# Edit .env with your preferred paths and settings
+```
+The installer will copy your `.env` file (or `.env.example` if no `.env` exists) to `/etc/nockchain-jammer.env` for the systemd service to use.
+
 After installation, you'll get a summary with your API key and usage instructions. The script is idempotent - you can run it multiple times safely.
 
 ## Manual Deployment
