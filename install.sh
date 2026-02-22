@@ -233,44 +233,33 @@ if [[ -f /etc/nginx/sites-available/default ]]; then
     # Backup existing config
     cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup.$(date +%Y%m%d_%H%M%S)
 
-    # Add API proxy configuration
+    # Add API proxy and jams static site configuration inside server {} block
     if ! grep -q "location /api/" /etc/nginx/sites-available/default; then
+        # Find the first "server {" and insert after it
         sed -i '/server {/a\
-        location /api/ {\
-            proxy_pass         http://127.0.0.1:'${API_PORT}';\
-            proxy_http_version 1.1;\
-            proxy_set_header   Host              $host;\
-            proxy_set_header   X-Real-IP         $remote_addr;\
-            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;\
-            proxy_set_header   X-Forwarded-Proto $scheme;\
-            proxy_read_timeout 120s;\
-            proxy_send_timeout 120s;\
-        }\
-' /etc/nginx/sites-available/default
+\
+    location /api/ {\
+        proxy_pass         http://127.0.0.1:'${API_PORT}';\
+        proxy_http_version 1.1;\
+        proxy_set_header   Host              $host;\
+        proxy_set_header   X-Real-IP         $remote_addr;\
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;\
+        proxy_set_header   X-Forwarded-Proto $scheme;\
+        proxy_read_timeout 120s;\
+        proxy_send_timeout 120s;\
+    }' /etc/nginx/sites-available/default
     fi
 
-    # Add static site configuration for jams
     if ! grep -q "location /jams/" /etc/nginx/sites-available/default; then
-        cat >> /etc/nginx/sites-available/default << EOF
-
-        location /jams/ {
-            alias $JAMS_DIR/;
-            index index.html;
-            autoindex off;
-            add_header Cache-Control "public, max-age=300";
-            add_header X-Content-Type-Options nosniff;
-
-            location ~* \.(jam|css|png|ico)$ {
-                expires 1y;
-                add_header Cache-Control "public, immutable";
-            }
-
-            location ~* SHA256SUMS {
-                add_header Content-Type text/plain;
-                add_header Cache-Control "no-cache";
-            }
-        }
-EOF
+        sed -i '/server {/a\
+\
+    location /jams/ {\
+        alias '"$JAMS_DIR"'/;\
+        index index.html;\
+        autoindex off;\
+        add_header Cache-Control "public, max-age=300";\
+        add_header X-Content-Type-Options nosniff;\
+    }' /etc/nginx/sites-available/default
     fi
 else
     log_warn "Could not find default nginx config, you'll need to configure nginx manually"
