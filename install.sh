@@ -61,27 +61,17 @@ fi
 # Install dependencies
 log_info "Installing dependencies..."
 apt-get update
-apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
+apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx cargo
 
-# Install Rust if not present
 if ! command -v cargo >/dev/null 2>&1; then
-    log_info "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    log_error "Cargo not found after installing dependencies."
+    exit 1
+fi
+log_info "Using cargo: $(cargo --version)"
 
-    # Configure Rust environment
-    export PATH="$HOME/.cargo/bin:$PATH"
-
-    # Configure Rust toolchain if using rustup
-    if command -v rustup >/dev/null 2>&1; then
-        if ! rustup show active-toolchain >/dev/null 2>&1; then
-            log_info "Setting up Rust toolchain..."
-            rustup default stable
-        fi
-    else
-        log_info "Rust installed via rustup, but rustup command not found in PATH"
-    fi
-else
-    log_info "Rust/Cargo already installed, using system version"
+# Create jammer user early so we can build as this user
+if ! id jammer >/dev/null 2>&1; then
+    useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
 fi
 
 # Clone or update repository
@@ -95,52 +85,37 @@ else
     cd "$INSTALL_DIR"
 fi
 
-# Build the API binary
+# Build the API binary as jammer user (not root)
 log_info "Building API binary..."
-cd api
-# Ensure Rust environment is available
-export PATH="$HOME/.cargo/bin:$PATH"
-
-# Verify cargo is available and working
-if ! command -v cargo >/dev/null 2>&1; then
-    log_error "Cargo not found. Please ensure Rust is properly installed."
-    exit 1
-fi
-
-# Test that cargo actually works
-if ! cargo --version >/dev/null 2>&1; then
-    log_error "Cargo command failed. Please check Rust installation."
-    exit 1
-fi
-
-cargo build --release
+chown -R jammer:jammer "$INSTALL_DIR"
+sudo -u jammer cargo build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
 
 # Install files
 log_info "Installing files..."
 
 # Install binary
-cp target/release/nockchain-jammer-api "$API_BINARY_PATH"
+cp "$INSTALL_DIR/api/target/release/nockchain-jammer-api" "$API_BINARY_PATH"
 chmod +x "$API_BINARY_PATH"
 
 # Install script
-cp ../make-jam.sh "$SCRIPT_PATH"
+cp "$INSTALL_DIR/make-jam.sh" "$SCRIPT_PATH"
 chmod +x "$SCRIPT_PATH"
 
 # Install website files
 mkdir -p "$JAMS_DIR"
-cp ../website/index.html "$JAMS_DIR/index.html"
-cp ../website/style.css "$JAMS_DIR/"
-cp ../website/jam-icon.png "$JAMS_DIR/" 2>/dev/null || true
+cp "$INSTALL_DIR/website/index.html" "$JAMS_DIR/index.html"
+cp "$INSTALL_DIR/website/style.css" "$JAMS_DIR/"
+cp "$INSTALL_DIR/website/jam-icon.png" "$JAMS_DIR/" 2>/dev/null || true
 
 # Set up runtime environment file
 if [[ ! -f /etc/nockchain-jammer.env ]]; then
     log_info "Creating runtime configuration file..."
     # Copy .env if it exists, otherwise use .env.example
-    if [[ -f .env ]]; then
-        cp .env /etc/nockchain-jammer.env
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        cp "$INSTALL_DIR/.env" /etc/nockchain-jammer.env
         log_info "Copied custom configuration from .env"
     else
-        cp .env.example /etc/nockchain-jammer.env
+        cp "$INSTALL_DIR/.env.example" /etc/nockchain-jammer.env
         log_info "Copied default configuration from .env.example"
     fi
 else
@@ -188,11 +163,6 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-
-# Create jammer user if it doesn't exist
-if ! id jammer >/dev/null 2>&1; then
-    useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
-fi
 
 # Set permissions
 chown -R jammer:jammer "$JAMS_DIR"
