@@ -44,10 +44,6 @@ struct StatusResult {
     last_success: Option<bool>,
 }
 
-fn shell_escape(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> {
     let key = headers
         .get("x-api-key")
@@ -89,23 +85,14 @@ async fn make_jam(
     job.started_at = Some(Instant::now());
     drop(job);
 
-    let log_file = std::env::temp_dir().join("nockchain-jammer-last.log");
-    let _ = std::fs::write(&log_file, "");
-
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
-    let wrapper = format!(
-        "bash {script} jam 2>&1 | tee {log} >&2; exit ${{PIPESTATUS[0]}}",
-        script = shell_escape(&state.script_path),
-        log = shell_escape(&log_file.to_string_lossy()),
-    );
-
     let status = Command::new("bash")
-        .arg("-c")
-        .arg(&wrapper)
+        .arg(&state.script_path)
+        .arg("jam")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(false)
         .status()
@@ -129,7 +116,6 @@ async fn make_jam(
     };
 
     let elapsed = start.elapsed();
-    let output_text = std::fs::read_to_string(&log_file).unwrap_or_default();
     let exit_code = exit_status.code().unwrap_or(-1);
     let success = exit_status.success();
 
@@ -148,7 +134,13 @@ async fn make_jam(
     job.last_completed = Some(finished_at);
     job.last_success = Some(success);
 
-    (code, Json(JobResult { success, output: output_text }))
+    let output = if success {
+        "completed successfully (see journalctl for live output)".to_string()
+    } else {
+        format!("failed with exit code {exit_code} (see journalctl for details)")
+    };
+
+    (code, Json(JobResult { success, output }))
 }
 
 fn count_jams(dir: &str) -> usize {
