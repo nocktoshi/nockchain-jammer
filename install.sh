@@ -72,7 +72,8 @@ fi
 JAMMER_CARGO="/var/lib/jammer/.cargo/bin/cargo"
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_info "Installing Rust toolchain for jammer user..."
-    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+    # Skip PATH check since we want to override system cargo
+    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
     # Ensure cargo is in PATH for jammer user
     sudo -u jammer -E bash -c 'echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> ~/.bashrc'
 fi
