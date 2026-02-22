@@ -1,6 +1,6 @@
 # nockchain-jammer
 
-<img width="632" height="395" alt="image-removebg-preview (1)" src="https://github.com/user-attachments/assets/7a806595-0ad4-49fd-b696-aa4f8f047790" />
+<img width="480" height="416" alt="jam-icon" src="https://github.com/user-attachments/assets/0a8eb2cf-cb9a-4df5-ad3f-d6a756da4eea" />
 
 Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verification, and provides an API to trigger new jam builds from the website.
 
@@ -148,3 +148,49 @@ Then update `make-jam.sh` to use `sudo systemctl` instead of bare `systemctl`, o
 | `API_KEY` | *(empty — prints warning)* | Shared secret for `X-API-Key` header |
 | `SCRIPT_PATH` | `/usr/local/bin/make-jam.sh` | Absolute path to the jam script |
 | `JAMS_DIR` | `/usr/share/nginx/html/jams` | Directory containing `.jam` files (for status count) |
+
+## Rate Limiting
+
+Making jams is resource intensive so as an extra measure you should consider rate limiting. The rust code should prevent simultaneous runs but it's good to also have protection at the nginx layer.  
+
+`/etc/nginx/nginx.conf`
+```
+http {
+
+...
+
+        # support API rate limiting 5 per minute
+        limit_req_zone $binary_remote_addr zone=api_limit:10m rate=5r/m;
+}
+```
+
+`/etc/nginx/sites-available/default`
+```
+    # nockchain-jammer API
+    # Rate-limited: jam creation endpoint
+    location = /api/make-jam {
+        limit_req          zone=api_limit burst=3 nodelay;
+        limit_req_status   429;
+
+        proxy_pass         http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+    # nockchain-jammer API
+    # No rate limit: status polling and any future read-only endpoints
+    location /api/ {
+        proxy_pass         http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+```
+
+<a href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam Vector by Giuseppe Ramos</a>
