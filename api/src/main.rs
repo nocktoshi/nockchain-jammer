@@ -139,8 +139,25 @@ async fn make_jam(
     });
 
     let exit_status = child.wait().await;
-    let stdout_out = stdout_task.await.unwrap_or_default();
-    let stderr_out = stderr_task.await.unwrap_or_default();
+    drop(child);
+
+    let stdout_out = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        stdout_task,
+    )
+    .await
+    .ok()
+    .and_then(|r| r.ok())
+    .unwrap_or_default();
+
+    let stderr_out = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        stderr_task,
+    )
+    .await
+    .ok()
+    .and_then(|r| r.ok())
+    .unwrap_or_default();
 
     let elapsed = start.elapsed();
     let combined = format!("{}{}", stdout_out, stderr_out);

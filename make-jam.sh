@@ -94,7 +94,7 @@ export_jam() {
 
 stop_service_and_wait() {
   echo "Stopping service: $SERVICE_NAME"
-  systemctl stop "$SERVICE_NAME"
+  systemctl stop "$SERVICE_NAME" </dev/null >/dev/null 2>&1
   while systemctl is-active --quiet "$SERVICE_NAME"; do
     sleep 1
   done
@@ -104,7 +104,7 @@ stop_service_and_wait() {
 
 start_service_and_wait() {
   echo "Starting service: $SERVICE_NAME"
-  systemctl start "$SERVICE_NAME"
+  systemctl start "$SERVICE_NAME" </dev/null >/dev/null 2>&1
   until systemctl is-active --quiet "$SERVICE_NAME"; do
     sleep 1
   done
