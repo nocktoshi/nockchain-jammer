@@ -88,6 +88,10 @@ async fn make_jam(
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
+    eprintln!(
+        "[make-jam] DEBUG before status().await at {}",
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+    );
     let status = Command::new("bash")
         .arg(&state.script_path)
         .arg("jam")
@@ -97,6 +101,10 @@ async fn make_jam(
         .kill_on_drop(false)
         .status()
         .await;
+    eprintln!(
+        "[make-jam] DEBUG after status().await at {}",
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+    );
 
     let exit_status = match status {
         Ok(s) => s,
