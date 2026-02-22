@@ -83,7 +83,7 @@ if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_error "Cargo not found at $JAMMER_CARGO after installation"
     exit 1
 fi
-log_info "Using cargo: $(sudo -u jammer -E bash -c 'export PATH="$HOME/.cargo/bin:$PATH"; cargo --version')"
+log_info "Using cargo: $($JAMMER_CARGO --version)"
 
 # Clone or update repository
 git config --global --add safe.directory "$INSTALL_DIR"
@@ -98,7 +98,7 @@ fi
 # Build the API binary as jammer user (not root)
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer -E bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; cargo build --release --manifest-path \"$INSTALL_DIR/api/Cargo.toml\""
+sudo -u jammer -E bash -c "export PATH=\"\$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; \$HOME/.cargo/bin/cargo build --release --manifest-path \"$INSTALL_DIR/api/Cargo.toml\""
 
 # Install files
 log_info "Installing files..."
