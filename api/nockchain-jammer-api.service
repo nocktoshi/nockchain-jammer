@@ -9,6 +9,8 @@ Environment=API_KEY=CHANGE_ME
 Environment=SCRIPT_PATH=/usr/local/bin/make-jam.sh
 Environment=HTML_ROOT=/usr/share/nginx/html
 Environment=JAMS_DIR=/usr/share/nginx/html/jams
+Environment=NOCKCHAIN_BIN=/home/youruser/.cargo/bin/nockchain
+Environment=NOCKCHAIN_DIR=/home/youruser/nockchain
 Restart=on-failure
 RestartSec=5
 
