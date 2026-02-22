@@ -173,6 +173,19 @@ code {
 .file-col { width: 26%; }
 .hash-col { width: 74%; }
 
+.tag-newest {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0.1em 0.5em;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: #22c55e;
+  border-radius: 9999px;
+  vertical-align: middle;
+}
+
 .status {
   margin-top: 0.75rem;
   color: rgba(255,255,255,0.5);

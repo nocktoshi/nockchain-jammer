@@ -68,7 +68,11 @@
             rows.push({ hash, path: cleanPath });
           }
 
-          rows.sort((a, b) => a.path.localeCompare(b.path));
+          function blockNum(p) {
+            var m = p.match(/(\d+)\.jam$/);
+            return m ? parseInt(m[1], 10) : 0;
+          }
+          rows.sort((a, b) => blockNum(b.path) - blockNum(a.path));
 
           if (!rows.length) {
             tableBody.innerHTML = "<tr><td colspan='2'>No .jam entries found in /jams/SHA256SUMS.</td></tr>";
@@ -76,20 +80,20 @@
             return;
           }
 
-          tableBody.innerHTML = rows.map(({ hash, path }) => {
+          tableBody.innerHTML = rows.map(({ hash, path }, i) => {
             const fileName = path.split("/").pop();
             const link = path.startsWith("jams/") ? "/" + path : "./" + fileName;
+            const tag = i === 0 ? " <span class='tag-newest'>newest</span>" : "";
             return (
               "<tr>" +
-                "<td><a href='" + link + "' download>" + fileName + "</a></td>" +
+                "<td><a href='" + link + "' download>" + fileName + "</a>" + tag + "</td>" +
                 "<td><code>" + hash + "</code></td>" +
               "</tr>"
             );
           }).join("");
 
-          const latest = [...rows].sort((a, b) => b.path.localeCompare(a.path))[0];
-          const latestName = latest.path.split("/").pop();
-          const latestHref = latest.path.startsWith("jams/") ? "/" + latest.path : "./" + latestName;
+          const latestName = rows[0].path.split("/").pop();
+          const latestHref = rows[0].path.startsWith("jams/") ? "/" + rows[0].path : "./" + latestName;
           latestLink.href = latestHref;
           latestLink.download = latestName;
           latestLink.hidden = false;
