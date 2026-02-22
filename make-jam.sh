@@ -7,7 +7,8 @@ JAMS_DIR="${JAMS_DIR:-$HTML_ROOT/jams}"
 MANIFEST="${MANIFEST:-$HTML_ROOT/jams/SHA256SUMS}"
 SERVICE_NAME="${SERVICE_NAME:-nockchain}"
 NOCKCHAIN_RPC="${NOCKCHAIN_RPC:-localhost:5556}"
-NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-nockchain}"
+NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-$HOME/.cargo/bin/nockchain}"
+NOCKCHAIN_DIR="${NOCKCHAIN_DIR:-$HOME/nockchain}"
 
 HASHER_BIN=""
 SERVICE_WAS_STOPPED_BY_SCRIPT=0
@@ -25,7 +26,8 @@ Optional env overrides:
   MANIFEST=/usr/share/nginx/html/SHA256SUMS
   SERVICE_NAME=nockchain
   NOCKCHAIN_RPC=localhost:5556
-  NOCKCHAIN_BIN=nockchain
+  NOCKCHAIN_BIN=\$HOME/.cargo/bin/nockchain
+  NOCKCHAIN_DIR=\$HOME/nockchain
 EOF
 }
 
@@ -85,8 +87,8 @@ export_jam() {
     return 0
   fi
 
-  echo "Exporting state jam to: $jam_path"
-  "$NOCKCHAIN_BIN" --export-state-jam "$jam_path"
+  echo "Exporting state jam to: $jam_path (from $NOCKCHAIN_DIR)"
+  (cd "$NOCKCHAIN_DIR" && "$NOCKCHAIN_BIN" --export-state-jam "$jam_path")
   echo "Exported: $jam_path"
 }
 
