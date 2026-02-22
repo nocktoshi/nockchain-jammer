@@ -72,9 +72,17 @@ fi
 JAMMER_CARGO="/var/lib/jammer/.cargo/bin/cargo"
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_info "Installing Rust toolchain for jammer user..."
-    sudo -u jammer bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+    # Ensure cargo is in PATH for jammer user
+    sudo -u jammer -E bash -c 'echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> ~/.bashrc'
 fi
-log_info "Using cargo: $(sudo -u jammer "$JAMMER_CARGO" --version)"
+
+# Verify cargo is available
+if [[ ! -x "$JAMMER_CARGO" ]]; then
+    log_error "Cargo not found at $JAMMER_CARGO after installation"
+    exit 1
+fi
+log_info "Using cargo: $(sudo -u jammer -E bash -c 'export PATH="$HOME/.cargo/bin:$PATH"; cargo --version')"
 
 # Clone or update repository
 git config --global --add safe.directory "$INSTALL_DIR"
@@ -89,7 +97,7 @@ fi
 # Build the API binary as jammer user (not root)
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
+sudo -u jammer -E bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; cargo build --release --manifest-path \"$INSTALL_DIR/api/Cargo.toml\""
 
 # Install files
 log_info "Installing files..."
