@@ -87,28 +87,22 @@ async fn make_jam(
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
-    let done_file = std::env::temp_dir().join(format!(
-        "nockchain-jammer-{}.done",
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-    ));
-    let _ = std::fs::remove_file(&done_file);
-
     eprintln!(
         "[make-jam] DEBUG before spawn at {}",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );
-    let mut child = match StdCommand::new("bash")
+    let status = match StdCommand::new("bash")
         .arg(&state.script_path)
         .arg("jam")
-        .env("JAM_DONE_FILE", &done_file)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
+        .and_then(|mut child| child.wait())
     {
-        Ok(c) => c,
+        Ok(status) => status,
         Err(e) => {
-            eprintln!("[make-jam] failed to run script: {e}");
+            eprintln!("[make-jam] failed to run or wait for script: {e}");
             let mut job = state.job.lock().await;
             job.running = false;
             job.started_at = None;
@@ -116,41 +110,14 @@ async fn make_jam(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(JobResult {
                     success: false,
-                    output: format!("failed to run script: {e}"),
+                    output: format!("failed to run or wait for script: {e}"),
                 }),
             );
         }
     };
 
-    let (success, exit_code) = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break (status.success(), status.code().unwrap_or(-1)),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("[make-jam] error checking process status: {e}");
-                let mut job = state.job.lock().await;
-                job.running = false;
-                job.started_at = None;
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(JobResult {
-                        success: false,
-                        output: format!("error checking process status: {e}"),
-                    }),
-                );
-            }
-        }
-
-        if done_file.exists() {
-            let code = std::fs::read_to_string(&done_file)
-                .ok()
-                .and_then(|s| s.trim().parse::<i32>().ok())
-                .unwrap_or(-1);
-            break (code == 0, code);
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    };
+    let success = status.success();
+    let exit_code = status.code().unwrap_or(-1);
     eprintln!(
         "[make-jam] DEBUG after completion detection at {}",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")

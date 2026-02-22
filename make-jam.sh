@@ -9,7 +9,6 @@ SERVICE_NAME="${SERVICE_NAME:-nockchain}"
 NOCKCHAIN_RPC="${NOCKCHAIN_RPC:-localhost:5556}"
 NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-/root/.cargo/bin/nockchain}"
 NOCKCHAIN_DIR="${NOCKCHAIN_DIR:-/root/nockchain}"
-JAM_DONE_FILE="${JAM_DONE_FILE:-}"
 
 HASHER_BIN=""
 SERVICE_WAS_STOPPED_BY_SCRIPT=0
@@ -103,21 +102,18 @@ stop_service_and_wait() {
   echo "Service stopped: $SERVICE_NAME"
 }
 
-start_service_and_wait() {
+start_service() {
   echo "Starting service: $SERVICE_NAME"
   systemctl start "$SERVICE_NAME" </dev/null >/dev/null 2>&1
-  until systemctl is-active --quiet "$SERVICE_NAME"; do
-    sleep 1
-  done
   SERVICE_WAS_STOPPED_BY_SCRIPT=0
-  echo "Service active: $SERVICE_NAME"
+  echo "Service start initiated: $SERVICE_NAME"
 }
 
 cleanup() {
   echo "DEBUG: cleanup() entered (SERVICE_WAS_STOPPED_BY_SCRIPT=$SERVICE_WAS_STOPPED_BY_SCRIPT)"
   # Always restart if this script stopped it.
   if [[ "$SERVICE_WAS_STOPPED_BY_SCRIPT" -eq 1 ]]; then
-    start_service_and_wait || true
+    start_service || true
   fi
   echo "DEBUG: cleanup() exiting"
 }
@@ -207,7 +203,7 @@ run_with_service_cycle() {
   trap cleanup EXIT
   stop_service_and_wait
   "$@"
-  start_service_and_wait
+  start_service
   echo "DEBUG: run_with_service_cycle done"
 }
 
@@ -240,7 +236,4 @@ rc=$?
 echo "DEBUG: jobs before disown: $(jobs -pr | tr '\n' ' ')"
 disown -a 2>/dev/null || true
 echo "DEBUG: main returned; exiting script"
-if [[ -n "$JAM_DONE_FILE" ]]; then
-  printf "%s\n" "$rc" > "$JAM_DONE_FILE"
-fi
 exit "$rc"
