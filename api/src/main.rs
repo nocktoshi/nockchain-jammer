@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::process::{Command as StdCommand, Stdio};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -8,7 +8,6 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
-use tokio::process::Command;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -92,23 +91,25 @@ async fn make_jam(
         "[make-jam] DEBUG before status().await at {}",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );
-    let status = Command::new("bash")
-        .arg(&state.script_path)
-        .arg("jam")
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(false)
-        .status()
-        .await;
+    let script_path = state.script_path.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        StdCommand::new("bash")
+            .arg(script_path)
+            .arg("jam")
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+    })
+    .await;
     eprintln!(
         "[make-jam] DEBUG after status().await at {}",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );
 
     let exit_status = match status {
-        Ok(s) => s,
-        Err(e) => {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
             eprintln!("[make-jam] failed to run script: {e}");
             let mut job = state.job.lock().await;
             job.running = false;
@@ -118,6 +119,19 @@ async fn make_jam(
                 Json(JobResult {
                     success: false,
                     output: format!("failed to run script: {e}"),
+                }),
+            );
+        }
+        Err(e) => {
+            eprintln!("[make-jam] join error waiting for script: {e}");
+            let mut job = state.job.lock().await;
+            job.running = false;
+            job.started_at = None;
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(JobResult {
+                    success: false,
+                    output: format!("internal join error: {e}"),
                 }),
             );
         }
