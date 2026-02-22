@@ -61,18 +61,20 @@ fi
 # Install dependencies
 log_info "Installing dependencies..."
 apt-get update
-apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx cargo
-
-if ! command -v cargo >/dev/null 2>&1; then
-    log_error "Cargo not found after installing dependencies."
-    exit 1
-fi
-log_info "Using cargo: $(cargo --version)"
+apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
 
 # Create jammer user early so we can build as this user
 if ! id jammer >/dev/null 2>&1; then
     useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
 fi
+
+# Install Rust via rustup for jammer user (system cargo from apt is too old)
+JAMMER_CARGO="/var/lib/jammer/.cargo/bin/cargo"
+if [[ ! -x "$JAMMER_CARGO" ]]; then
+    log_info "Installing Rust toolchain for jammer user..."
+    sudo -u jammer bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+fi
+log_info "Using cargo: $(sudo -u jammer "$JAMMER_CARGO" --version)"
 
 # Clone or update repository
 if [[ -d "$INSTALL_DIR" ]]; then
@@ -88,7 +90,7 @@ fi
 # Build the API binary as jammer user (not root)
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer cargo build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
+sudo -u jammer "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
 
 # Install files
 log_info "Installing files..."
