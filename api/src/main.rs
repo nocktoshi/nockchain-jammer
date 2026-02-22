@@ -87,29 +87,27 @@ async fn make_jam(
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
-    eprintln!(
-        "[make-jam] DEBUG before status().await at {}",
-        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-    );
-    let script_path = state.script_path.clone();
-    let status = tokio::task::spawn_blocking(move || {
-        StdCommand::new("bash")
-            .arg(script_path)
-            .arg("jam")
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-    })
-    .await;
-    eprintln!(
-        "[make-jam] DEBUG after status().await at {}",
-        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-    );
+    let done_file = std::env::temp_dir().join(format!(
+        "nockchain-jammer-{}.done",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    let _ = std::fs::remove_file(&done_file);
 
-    let exit_status = match status {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
+    eprintln!(
+        "[make-jam] DEBUG before spawn at {}",
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+    );
+    let mut child = match StdCommand::new("bash")
+        .arg(&state.script_path)
+        .arg("jam")
+        .env("JAM_DONE_FILE", &done_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
             eprintln!("[make-jam] failed to run script: {e}");
             let mut job = state.job.lock().await;
             job.running = false;
@@ -122,24 +120,45 @@ async fn make_jam(
                 }),
             );
         }
-        Err(e) => {
-            eprintln!("[make-jam] join error waiting for script: {e}");
-            let mut job = state.job.lock().await;
-            job.running = false;
-            job.started_at = None;
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(JobResult {
-                    success: false,
-                    output: format!("internal join error: {e}"),
-                }),
-            );
-        }
     };
 
+    let (success, exit_code) = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break (status.success(), status.code().unwrap_or(-1)),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("[make-jam] error checking process status: {e}");
+                let mut job = state.job.lock().await;
+                job.running = false;
+                job.started_at = None;
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(JobResult {
+                        success: false,
+                        output: format!("error checking process status: {e}"),
+                    }),
+                );
+            }
+        }
+
+        if done_file.exists() {
+            let code = std::fs::read_to_string(&done_file)
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .unwrap_or(-1);
+            let _ = child.kill();
+            let _ = child.wait();
+            break (code == 0, code);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    };
+    eprintln!(
+        "[make-jam] DEBUG after completion detection at {}",
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+    );
+
     let elapsed = start.elapsed();
-    let exit_code = exit_status.code().unwrap_or(-1);
-    let success = exit_status.success();
 
     if success {
         eprintln!("[make-jam] completed successfully in {:.1}s", elapsed.as_secs_f64());

@@ -9,6 +9,7 @@ SERVICE_NAME="${SERVICE_NAME:-nockchain}"
 NOCKCHAIN_RPC="${NOCKCHAIN_RPC:-localhost:5556}"
 NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-/root/.cargo/bin/nockchain}"
 NOCKCHAIN_DIR="${NOCKCHAIN_DIR:-/root/nockchain}"
+JAM_DONE_FILE="${JAM_DONE_FILE:-}"
 
 HASHER_BIN=""
 SERVICE_WAS_STOPPED_BY_SCRIPT=0
@@ -235,7 +236,11 @@ main() {
 }
 
 main "$@"
+rc=$?
 echo "DEBUG: jobs before disown: $(jobs -pr | tr '\n' ' ')"
 disown -a 2>/dev/null || true
 echo "DEBUG: main returned; exiting script"
-exit 0
+if [[ -n "$JAM_DONE_FILE" ]]; then
+  printf "%s\n" "$rc" > "$JAM_DONE_FILE"
+fi
+exit "$rc"
