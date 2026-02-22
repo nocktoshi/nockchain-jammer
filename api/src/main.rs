@@ -222,6 +222,12 @@ async fn main() {
     let jams_dir = std::env::var("JAMS_DIR")
         .unwrap_or_else(|_| "/usr/share/nginx/html/jams".into());
 
+    eprintln!("config: SCRIPT_PATH={script_path}");
+    eprintln!("config: JAMS_DIR={jams_dir}");
+    for var in ["NOCKCHAIN_BIN", "NOCKCHAIN_DIR", "NOCKCHAIN_RPC", "HTML_ROOT"] {
+        eprintln!("config: {}={}", var, std::env::var(var).unwrap_or_else(|_| "(unset)".into()));
+    }
+
     let state = Arc::new(AppState {
         api_key,
         script_path,
