@@ -8,7 +8,6 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
@@ -43,6 +42,10 @@ struct StatusResult {
     last_completed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_success: Option<bool>,
+}
+
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> {
@@ -86,17 +89,23 @@ async fn make_jam(
     job.started_at = Some(Instant::now());
     drop(job);
 
+    let log_file = std::env::temp_dir().join("nockchain-jammer-last.log");
     eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
     let start = Instant::now();
 
     let child = Command::new("bash")
-        .arg(&state.script_path)
-        .arg("jam")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .arg("-c")
+        .arg(format!(
+            "bash {} jam 2>&1 | tee {}",
+            shell_escape(&state.script_path),
+            shell_escape(&log_file.to_string_lossy()),
+        ))
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(false)
         .spawn();
 
-    let mut child = match child {
+    let child = match child {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[make-jam] failed to spawn: {e}");
@@ -113,67 +122,23 @@ async fn make_jam(
         }
     };
 
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-
-    let stdout_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        let mut buf = String::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            eprintln!("[make-jam] {line}");
-            buf.push_str(&line);
-            buf.push('\n');
-        }
-        buf
-    });
-
-    let stderr_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        let mut buf = String::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            eprintln!("[make-jam] stderr: {line}");
-            buf.push_str(&line);
-            buf.push('\n');
-        }
-        buf
-    });
-
-    let exit_status = child.wait().await;
-    drop(child);
-
-    let stdout_out = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        stdout_task,
-    )
-    .await
-    .ok()
-    .and_then(|r| r.ok())
-    .unwrap_or_default();
-
-    let stderr_out = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        stderr_task,
-    )
-    .await
-    .ok()
-    .and_then(|r| r.ok())
-    .unwrap_or_default();
+    let exit_status = child.wait_with_output().await;
 
     let elapsed = start.elapsed();
-    let combined = format!("{}{}", stdout_out, stderr_out);
+    let output_text = std::fs::read_to_string(&log_file).unwrap_or_default();
     let finished_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     let (success, result) = match exit_status {
-        Ok(status) => {
-            let success = status.success();
-            let exit_code = status.code().unwrap_or(-1);
+        Ok(output) => {
+            let success = output.status.success();
+            let exit_code = output.status.code().unwrap_or(-1);
             if success {
                 eprintln!("[make-jam] completed successfully in {:.1}s", elapsed.as_secs_f64());
             } else {
                 eprintln!("[make-jam] failed with exit code {exit_code} in {:.1}s", elapsed.as_secs_f64());
             }
             let code = if success { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR };
-            (success, (code, Json(JobResult { success, output: combined })))
+            (success, (code, Json(JobResult { success, output: output_text.clone() })))
         }
         Err(e) => {
             eprintln!("[make-jam] error waiting for process: {e}");
@@ -181,7 +146,7 @@ async fn make_jam(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(JobResult {
                     success: false,
-                    output: format!("{combined}error: {e}"),
+                    output: format!("{output_text}error: {e}"),
                 }),
             ))
         }
