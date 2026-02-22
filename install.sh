@@ -63,6 +63,18 @@ log_info "Installing dependencies..."
 apt-get update
 apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
 
+# Install grpcurl as a standalone binary (snap version won't work under systemd)
+if ! command -v grpcurl >/dev/null 2>&1 || grpcurl --version 2>&1 | grep -q snap; then
+    log_info "Installing grpcurl from GitHub releases..."
+    # Remove snap version if present
+    snap remove grpcurl 2>/dev/null || true
+    GRPCURL_VERSION=$(curl -fsSL https://api.github.com/repos/fullstorydev/grpcurl/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+    curl -fsSL "https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz" \
+        | tar -xz -C /usr/local/bin grpcurl
+    chmod +x /usr/local/bin/grpcurl
+    log_info "Installed grpcurl v${GRPCURL_VERSION}"
+fi
+
 # Create jammer user early so we can build as this user
 JAMMER_HOME="/var/lib/jammer"
 if ! id jammer >/dev/null 2>&1; then
