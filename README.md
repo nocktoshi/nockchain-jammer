@@ -8,7 +8,7 @@ Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verif
 
 | File / Dir | Purpose |
 |------------|---------|
-| `website/` | Frontend — `jams.html`, icons, and static assets |
+| `website/` | Frontend — html, icons, and static assets |
 | `make-jam.sh` | Stops the nockchain service, hashes `.jam` files, writes `SHA256SUMS`, restarts service |
 | `api/` | Axum (Rust) API server that runs `make-jam.sh` on demand |
 
@@ -23,7 +23,7 @@ Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verif
 
 ```mermaid
 flowchart LR
-    Browser["jams.html (Browser)"] -->|"POST /api/make-jam"| Nginx
+    Browser["index.html (Browser)"] -->|"POST /api/make-jam"| Nginx
     Nginx -->|"proxy_pass :3001"| Axum["Axum API (:3001)"]
     Axum -->|"spawns"| Script["make-jam.sh hash"]
     Axum -->|"GET /api/status"| Browser
@@ -33,7 +33,33 @@ flowchart LR
 ## Front-End
 <img width="837" height="630" alt="image" src="https://github.com/user-attachments/assets/0ee6a462-1a62-4a1a-8dfc-b9e23e6d1b59" />
 
-## Deployment
+## Quick Install
+
+Run this one-liner on your server (requires root/sudo):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh | bash
+```
+
+**Before running, you can inspect the script:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh
+```
+
+This automated installer will:
+- ✅ Install all dependencies (Rust, nginx, build tools)
+- ✅ Build and install the API binary from source
+- ✅ Configure systemd service with auto-restart
+- ✅ Set up nginx for both API proxy AND static website serving
+- ✅ Configure proper permissions and sudo rules
+- ✅ Generate a secure random API key
+- ✅ Test the installation
+
+After installation, you'll get a summary with your API key and usage instructions. The script is idempotent - you can run it multiple times safely.
+
+## Manual Deployment
+
+If you prefer to install manually or need more control:
 
 ### 1. Build the API binary
 
@@ -55,7 +81,7 @@ scp make-jam.sh server:/usr/local/bin/
 chmod +x /usr/local/bin/make-jam.sh
 
 # Copy the website (HTML + assets)
-scp website/jams.html server:/usr/share/nginx/html/jams/index.html
+scp website/index.html server:/usr/share/nginx/html/jams/index.html
 scp website/style.css server:/usr/share/nginx/html/jams/style.css
 scp website/jam-icon.png server:/usr/share/nginx/html/jams/jam-icon.png
 ```

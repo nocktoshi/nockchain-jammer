@@ -1,0 +1,237 @@
+#!/bin/bash
+set -euo pipefail
+
+# nockchain-jammer installer
+# Run with: curl -fsSL https://raw.githubusercontent.com/your-repo/nockchain-jammer/main/install.sh | bash
+
+# Update this to your actual repository URL
+REPO_URL="https://github.com/your-repo/nockchain-jammer"
+INSTALL_DIR="/opt/nockchain-jammer"
+SERVICE_NAME="nockchain-jammer-api"
+API_PORT="3001"
+JAMS_DIR="/usr/share/nginx/html/jams"
+SCRIPT_PATH="/usr/local/bin/make-jam.sh"
+API_BINARY_PATH="/usr/local/bin/nockchain-jammer-api"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+    log_error "This script must be run as root (use sudo)"
+    exit 1
+fi
+
+log_info "Starting nockchain-jammer installation..."
+
+# Safety checks
+if [[ ! -f /etc/os-release ]] || ! grep -qi "ubuntu\|debian" /etc/os-release; then
+    log_error "This installer is designed for Ubuntu/Debian systems only."
+    log_error "For other systems, please follow the manual installation steps."
+    exit 1
+fi
+
+# Install dependencies
+log_info "Installing dependencies..."
+apt-get update
+apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
+
+# Install Rust if not present
+if ! command -v cargo >/dev/null 2>&1; then
+    log_info "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source $HOME/.cargo/env
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
+# Clone or update repository
+if [[ -d "$INSTALL_DIR" ]]; then
+    log_warn "Installation directory exists, updating..."
+    cd "$INSTALL_DIR"
+    git pull
+else
+    log_info "Cloning repository..."
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+fi
+
+# Build the API binary
+log_info "Building API binary..."
+cd api
+cargo build --release
+
+# Install files
+log_info "Installing files..."
+
+# Install binary
+cp target/release/nockchain-jammer-api "$API_BINARY_PATH"
+chmod +x "$API_BINARY_PATH"
+
+# Install script
+cp ../make-jam.sh "$SCRIPT_PATH"
+chmod +x "$SCRIPT_PATH"
+
+# Install website files
+mkdir -p "$JAMS_DIR"
+cp ../website/index.html "$JAMS_DIR/index.html"
+cp ../website/style.css "$JAMS_DIR/"
+cp ../website/jam-icon.png "$JAMS_DIR/" 2>/dev/null || true
+
+# Generate or preserve API key
+if [[ -f /etc/nockchain-jammer.env ]] && grep -q "^API_KEY=" /etc/nockchain-jammer.env; then
+    API_KEY=$(grep "^API_KEY=" /etc/nockchain-jammer.env | cut -d'=' -f2)
+    log_info "Using existing API key: ${API_KEY:0:8}..."
+else
+    API_KEY=$(openssl rand -hex 32)
+    log_info "Generated new API key: ${API_KEY:0:8}..."
+    echo "API_KEY=$API_KEY" > /etc/nockchain-jammer.env
+fi
+
+# Create systemd service
+log_info "Creating systemd service..."
+cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
+[Unit]
+Description=Nockchain Jammer API
+After=network.target
+
+[Service]
+Type=simple
+User=jammer
+EnvironmentFile=/etc/nockchain-jammer.env
+ExecStart=$API_BINARY_PATH
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create jammer user if it doesn't exist
+if ! id jammer >/dev/null 2>&1; then
+    useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
+fi
+
+# Set permissions
+chown -R jammer:jammer "$JAMS_DIR"
+mkdir -p /var/lib/jammer
+chown jammer:jammer /var/lib/jammer
+
+# Configure sudo for systemctl commands
+log_info "Configuring sudo permissions..."
+cat > /etc/sudoers.d/nockchain-jammer << EOF
+jammer ALL=(ALL) NOPASSWD: /bin/systemctl stop nockchain, /bin/systemctl start nockchain, /bin/systemctl is-active nockchain
+EOF
+chmod 440 /etc/sudoers.d/nockchain-jammer
+
+# Update make-jam.sh to use sudo
+sed -i 's/systemctl /sudo systemctl /g' "$SCRIPT_PATH"
+
+# Configure nginx
+log_info "Configuring nginx..."
+if [[ -f /etc/nginx/sites-available/default ]]; then
+    # Backup existing config
+    cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup.$(date +%Y%m%d_%H%M%S)
+
+    # Add API proxy configuration
+    if ! grep -q "location /api/" /etc/nginx/sites-available/default; then
+        sed -i '/server {/a\
+        location /api/ {\
+            proxy_pass         http://127.0.0.1:'${API_PORT}';\
+            proxy_http_version 1.1;\
+            proxy_set_header   Host              $host;\
+            proxy_set_header   X-Real-IP         $remote_addr;\
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;\
+            proxy_set_header   X-Forwarded-Proto $scheme;\
+            proxy_read_timeout 120s;\
+            proxy_send_timeout 120s;\
+        }\
+' /etc/nginx/sites-available/default
+    fi
+
+    # Add static site configuration for jams
+    if ! grep -q "location /jams/" /etc/nginx/sites-available/default; then
+        cat >> /etc/nginx/sites-available/default << EOF
+
+        location /jams/ {
+            alias $JAMS_DIR/;
+            index index.html;
+            autoindex off;
+            add_header Cache-Control "public, max-age=300";
+            add_header X-Content-Type-Options nosniff;
+
+            location ~* \.(jam|css|png|ico)$ {
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+            }
+
+            location ~* SHA256SUMS {
+                add_header Content-Type text/plain;
+                add_header Cache-Control "no-cache";
+            }
+        }
+EOF
+    fi
+else
+    log_warn "Could not find default nginx config, you'll need to configure nginx manually"
+fi
+
+# Start services
+log_info "Starting services..."
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
+
+# Test nginx config
+if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+    log_success "nginx configuration reloaded"
+else
+    log_warn "nginx configuration test failed, please check manually"
+fi
+
+# Test API
+sleep 2
+if curl -f -H "X-API-Key: $API_KEY" http://localhost:$API_PORT/api/status >/dev/null 2>&1; then
+    log_success "API is responding correctly"
+else
+    log_warn "API test failed, check service status with: systemctl status $SERVICE_NAME"
+fi
+
+log_success "Installation complete!"
+echo
+echo "========================================"
+echo "Installation Summary:"
+echo "========================================"
+echo "API Key: $API_KEY"
+echo "API URL: http://localhost:$API_PORT"
+echo "Jams Directory: $JAMS_DIR"
+echo "Service: $SERVICE_NAME"
+echo
+echo "To test:"
+echo "curl -H 'X-API-Key: $API_KEY' http://localhost:$API_PORT/api/status"
+echo
+echo "To trigger a jam build:"
+echo "curl -X POST -H 'X-API-Key: $API_KEY' http://localhost:$API_PORT/api/make-jam"
+echo
+echo "View jams website at: http://your-server/jams/"
+echo "========================================"
