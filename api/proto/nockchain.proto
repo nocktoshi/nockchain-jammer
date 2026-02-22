@@ -1,0 +1,41 @@
+// Simplified proto for nockchain-jammer.
+// Only includes types needed for GetBlocks RPC.
+// Field numbers match the full nockchain proto for wire compatibility.
+// Source: https://github.com/nockchain/nockchain/blob/master/crates/nockapp-grpc-proto/proto/nockchain/public/v2/nockchain.proto
+
+syntax = "proto3";
+package nockchain.public.v2;
+
+service NockchainBlockService {
+  rpc GetBlocks(GetBlocksRequest) returns (GetBlocksResponse);
+}
+
+message PageRequest {
+  uint32 client_page_items_limit = 1;
+  string page_token = 2;
+}
+
+message GetBlocksRequest {
+  PageRequest page = 1;
+}
+
+message GetBlocksResponse {
+  oneof result {
+    BlocksData blocks = 1;
+    ErrorStatus error = 2;
+  }
+}
+
+message BlocksData {
+  repeated BlockEntry blocks = 1;
+  uint64 current_height = 2;
+}
+
+message BlockEntry {
+  uint64 height = 2;
+}
+
+message ErrorStatus {
+  int32 code = 1;
+  string message = 2;
+}
