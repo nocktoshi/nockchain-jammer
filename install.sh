@@ -219,8 +219,9 @@ chown jammer:jammer /var/lib/jammer
 
 # Configure sudo for systemctl commands
 log_info "Configuring sudo permissions..."
+SYSTEMCTL_PATH="$(command -v systemctl)"
 cat > /etc/sudoers.d/nockchain-jammer << EOF
-jammer ALL=(ALL) NOPASSWD: /bin/systemctl stop nockchain, /bin/systemctl start nockchain, /bin/systemctl is-active nockchain
+jammer ALL=(ALL) NOPASSWD: $SYSTEMCTL_PATH stop nockchain, $SYSTEMCTL_PATH start nockchain, $SYSTEMCTL_PATH is-active nockchain
 EOF
 chmod 440 /etc/sudoers.d/nockchain-jammer
 

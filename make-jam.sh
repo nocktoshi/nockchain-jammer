@@ -5,7 +5,7 @@ set -euo pipefail
 HTML_ROOT="${HTML_ROOT:-/usr/share/nginx/html}"
 JAMS_DIR="${JAMS_DIR:-$HTML_ROOT/jams}"
 MANIFEST="${MANIFEST:-$HTML_ROOT/jams/SHA256SUMS}"
-SERVICE_NAME="${SERVICE_NAME:-nockchain}"
+NOCKCHAIN_SERVICE="${NOCKCHAIN_SERVICE:-nockchain}"
 NOCKCHAIN_RPC="${NOCKCHAIN_RPC:-localhost:5556}"
 NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-/root/.cargo/bin/nockchain}"
 NOCKCHAIN_DIR="${NOCKCHAIN_DIR:-/root/nockchain}"
@@ -24,7 +24,7 @@ Optional env overrides:
   HTML_ROOT=/usr/share/nginx/html
   JAMS_DIR=/usr/share/nginx/html/jams
   MANIFEST=/usr/share/nginx/html/SHA256SUMS
-  SERVICE_NAME=nockchain
+  NOCKCHAIN_SERVICE=nockchain
   NOCKCHAIN_RPC=localhost:5556
   NOCKCHAIN_BIN=/root/.cargo/bin/nockchain
   NOCKCHAIN_DIR=/root/nockchain
@@ -93,20 +93,20 @@ export_jam() {
 }
 
 stop_service_and_wait() {
-  echo "Stopping service: $SERVICE_NAME"
-  systemctl stop "$SERVICE_NAME" </dev/null >/dev/null 2>&1
-  while systemctl is-active --quiet "$SERVICE_NAME"; do
+  echo "Stopping service: $NOCKCHAIN_SERVICE"
+  systemctl stop "$NOCKCHAIN_SERVICE" </dev/null >/dev/null 2>&1
+  while systemctl is-active --quiet "$NOCKCHAIN_SERVICE"; do
     sleep 1
   done
   SERVICE_WAS_STOPPED_BY_SCRIPT=1
-  echo "Service stopped: $SERVICE_NAME"
+  echo "Service stopped: $NOCKCHAIN_SERVICE"
 }
 
 start_service() {
-  echo "Starting service: $SERVICE_NAME"
-  systemctl start "$SERVICE_NAME" </dev/null >/dev/null 2>&1
+  echo "Starting service: $NOCKCHAIN_SERVICE"
+  systemctl start "$NOCKCHAIN_SERVICE" </dev/null >/dev/null 2>&1
   SERVICE_WAS_STOPPED_BY_SCRIPT=0
-  echo "Service start initiated: $SERVICE_NAME"
+  echo "Service start initiated: $NOCKCHAIN_SERVICE"
 }
 
 cleanup() {
