@@ -64,34 +64,27 @@ apt-get update
 apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
 
 # Create jammer user early so we can build as this user
+JAMMER_HOME="/var/lib/jammer"
 if ! id jammer >/dev/null 2>&1; then
-    useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
-    # Ensure home directory exists and has correct permissions
-    mkdir -p /var/lib/jammer
-    chown jammer:jammer /var/lib/jammer
-    chmod 755 /var/lib/jammer
+    useradd --system --shell /bin/bash --home "$JAMMER_HOME" --create-home jammer
 fi
+mkdir -p "$JAMMER_HOME"
+chown jammer:jammer "$JAMMER_HOME"
 
 # Install Rust via rustup for jammer user (system cargo from apt is too old)
-JAMMER_CARGO="/var/lib/jammer/.cargo/bin/cargo"
+JAMMER_CARGO="$JAMMER_HOME/.cargo/bin/cargo"
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_info "Installing Rust toolchain for jammer user..."
-    # Ensure home directory exists before installing rustup
-    sudo -u jammer -E bash -c 'mkdir -p ~/.cargo/bin'
-    # Skip PATH check since we want to override system cargo
-    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | CARGO_HOME="$HOME/.cargo" sh -s -- -y --no-modify-path'
-    # Ensure cargo is in PATH for jammer user
-    sudo -u jammer -E bash -c 'echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> ~/.bashrc'
+    sudo -u jammer -H bash -c \
+        'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
 fi
 
-# Verify cargo is available
 if [[ ! -x "$JAMMER_CARGO" ]]; then
-    log_error "Cargo not found at $JAMMER_CARGO after installation"
-    log_error "Jammer user home: $(eval echo ~jammer)"
-    log_error "Jammer .cargo directory: $(ls -la /var/lib/jammer/.cargo/ 2>/dev/null || echo 'does not exist')"
+    log_error "Cargo not found at $JAMMER_CARGO after installation."
+    log_error "Contents of $JAMMER_HOME: $(ls -la "$JAMMER_HOME" 2>&1)"
     exit 1
 fi
-log_info "Using cargo: $($JAMMER_CARGO --version)"
+log_info "Using cargo: $("$JAMMER_CARGO" --version)"
 
 # Clone or update repository
 git config --global --add safe.directory "$INSTALL_DIR"
@@ -106,7 +99,7 @@ fi
 # Build the API binary as jammer user (not root)
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer -E bash -c "export PATH=\"\$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; \$HOME/.cargo/bin/cargo build --release --manifest-path \"$INSTALL_DIR/api/Cargo.toml\""
+sudo -u jammer -H "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
 
 # Install files
 log_info "Installing files..."
