@@ -66,14 +66,20 @@ apt-get install -y curl wget git build-essential pkg-config libssl-dev jq nginx
 # Create jammer user early so we can build as this user
 if ! id jammer >/dev/null 2>&1; then
     useradd --system --shell /bin/bash --home /var/lib/jammer --create-home jammer
+    # Ensure home directory exists and has correct permissions
+    mkdir -p /var/lib/jammer
+    chown jammer:jammer /var/lib/jammer
+    chmod 755 /var/lib/jammer
 fi
 
 # Install Rust via rustup for jammer user (system cargo from apt is too old)
 JAMMER_CARGO="/var/lib/jammer/.cargo/bin/cargo"
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_info "Installing Rust toolchain for jammer user..."
+    # Ensure home directory exists before installing rustup
+    sudo -u jammer -E bash -c 'mkdir -p ~/.cargo/bin'
     # Skip PATH check since we want to override system cargo
-    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
+    sudo -u jammer -E bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | CARGO_HOME="$HOME/.cargo" sh -s -- -y --no-modify-path'
     # Ensure cargo is in PATH for jammer user
     sudo -u jammer -E bash -c 'echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> ~/.bashrc'
 fi
@@ -81,6 +87,8 @@ fi
 # Verify cargo is available
 if [[ ! -x "$JAMMER_CARGO" ]]; then
     log_error "Cargo not found at $JAMMER_CARGO after installation"
+    log_error "Jammer user home: $(eval echo ~jammer)"
+    log_error "Jammer .cargo directory: $(ls -la /var/lib/jammer/.cargo/ 2>/dev/null || echo 'does not exist')"
     exit 1
 fi
 log_info "Using cargo: $($JAMMER_CARGO --version)"
