@@ -113,10 +113,12 @@ start_service_and_wait() {
 }
 
 cleanup() {
+  echo "DEBUG: cleanup() entered (SERVICE_WAS_STOPPED_BY_SCRIPT=$SERVICE_WAS_STOPPED_BY_SCRIPT)"
   # Always restart if this script stopped it.
   if [[ "$SERVICE_WAS_STOPPED_BY_SCRIPT" -eq 1 ]]; then
     start_service_and_wait || true
   fi
+  echo "DEBUG: cleanup() exiting"
 }
 
 collect_files() {
@@ -205,6 +207,7 @@ run_with_service_cycle() {
   stop_service_and_wait
   "$@"
   start_service_and_wait
+  echo "DEBUG: run_with_service_cycle done"
 }
 
 main() {
@@ -232,4 +235,5 @@ main() {
 }
 
 main "$@"
+echo "DEBUG: main returned; exiting script"
 exit 0
