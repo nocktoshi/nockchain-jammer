@@ -70,7 +70,7 @@ p { margin: 0.5rem 0; }
 
 .meta {
   color: rgba(255,255,255,0.55);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   letter-spacing: 0.03em;
 }
 
@@ -97,7 +97,7 @@ a.button, button.button {
   color: #fff;
   background: rgba(255,215,0,0.1);
   font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   letter-spacing: 0.04em;
   transition: all 0.3s ease;
   cursor: pointer;
@@ -145,7 +145,7 @@ thead th {
 }
 
 tbody td {
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   border-bottom: 1px solid rgba(255,255,255,0.06);
   padding: 0.6rem 0.8rem;
   vertical-align: top;
@@ -189,7 +189,7 @@ code {
 .status {
   margin-top: 0.75rem;
   color: rgba(255,255,255,0.5);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
 }
 
 .status.error { color: #ff6b6b; }
@@ -213,7 +213,7 @@ code {
   padding: 0.5rem 0.8rem;
   border: 1px solid rgba(255,215,0,0.25);
   border-radius: 25px;
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: rgba(255,255,255,0.05);
   color: #fff;
