@@ -146,8 +146,6 @@ async fn make_jam(
                 .ok()
                 .and_then(|s| s.trim().parse::<i32>().ok())
                 .unwrap_or(-1);
-            let _ = child.kill();
-            let _ = child.wait();
             break (code == 0, code);
         }
 
