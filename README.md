@@ -1,6 +1,6 @@
 # nockchain-jammer
 
-<img width="632" height="395" alt="image-removebg-preview (1)" src="https://github.com/user-attachments/assets/7a806595-0ad4-49fd-b696-aa4f8f047790" />
+<img width="480" height="416" alt="jam-icon" src="https://github.com/user-attachments/assets/0a8eb2cf-cb9a-4df5-ad3f-d6a756da4eea" />
 
 Make yummy jams. Serves Nockchain state jam binaries with SHA-256 checksum verification, and provides an API to trigger new jam builds from the website.
 
@@ -166,3 +166,5 @@ http {
         proxy_set_header   X-Forwarded-Proto $scheme;
     }
 ```
+
+<a href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam Vector by Giuseppe Ramos</a>
