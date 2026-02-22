@@ -1,5 +1,6 @@
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -7,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
@@ -56,6 +58,7 @@ async fn make_jam(
 
     let mut lock = state.running.lock().await;
     if *lock {
+        eprintln!("[make-jam] rejected: job already running");
         return (
             StatusCode::CONFLICT,
             Json(JobResult {
@@ -67,37 +70,89 @@ async fn make_jam(
     *lock = true;
     drop(lock);
 
-    let result = Command::new("bash")
+    eprintln!("[make-jam] starting: bash {} jam", &state.script_path);
+    let start = Instant::now();
+
+    let child = Command::new("bash")
         .arg(&state.script_path)
         .arg("jam")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .await;
+        .spawn();
+
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[make-jam] failed to spawn: {e}");
+            let mut lock = state.running.lock().await;
+            *lock = false;
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(JobResult {
+                    success: false,
+                    output: format!("failed to spawn script: {e}"),
+                }),
+            );
+        }
+    };
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let stdout_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        let mut buf = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[make-jam] {line}");
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        buf
+    });
+
+    let stderr_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        let mut buf = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[make-jam] stderr: {line}");
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        buf
+    });
+
+    let exit_status = child.wait().await;
+    let stdout_out = stdout_task.await.unwrap_or_default();
+    let stderr_out = stderr_task.await.unwrap_or_default();
 
     let mut lock = state.running.lock().await;
     *lock = false;
 
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let combined = format!("{}{}", stdout, stderr);
-            let success = output.status.success();
-            let code = if success {
-                StatusCode::OK
+    let elapsed = start.elapsed();
+    let combined = format!("{}{}", stdout_out, stderr_out);
+
+    match exit_status {
+        Ok(status) => {
+            let success = status.success();
+            let exit_code = status.code().unwrap_or(-1);
+            if success {
+                eprintln!("[make-jam] completed successfully in {:.1}s", elapsed.as_secs_f64());
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
+                eprintln!("[make-jam] failed with exit code {exit_code} in {:.1}s", elapsed.as_secs_f64());
+            }
+            let code = if success { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR };
             (code, Json(JobResult { success, output: combined }))
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(JobResult {
-                success: false,
-                output: format!("failed to spawn script: {e}"),
-            }),
-        ),
+        Err(e) => {
+            eprintln!("[make-jam] error waiting for process: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(JobResult {
+                    success: false,
+                    output: format!("{combined}error: {e}"),
+                }),
+            )
+        }
     }
 }
 
