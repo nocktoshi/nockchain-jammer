@@ -158,7 +158,7 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
     }
 
     // Kill the child process regardless - nockchain doesn't exit properly
-    let _ = child.kill().await;
+    let _ = child.kill();
 
     if !jam_path.exists() {
         bail!("Jam file never appeared at {}", jam_path.display());
