@@ -217,14 +217,24 @@ fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path, 
         bail!("No files found to hash");
     }
 
+    // Hash all files in parallel
+    let results: Vec<Result<(String, String)>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = files.iter().map(|file| {
+            scope.spawn(|| -> Result<(String, String)> {
+                let rel = file.strip_prefix(html_root).unwrap_or(file).to_string_lossy().to_string();
+                log.append(&format!("[jammer] Hashing: {}", rel));
+                let hash = hash_file(file)?;
+                log.append(&format!("[jammer] Hashed: {}", rel));
+                Ok((hash, rel))
+            })
+        }).collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    // Collect results in original sorted order
     let mut content = String::new();
-    for file in &files {
-        let rel = file
-            .strip_prefix(html_root)
-            .unwrap_or(file)
-            .to_string_lossy();
-        let hash = hash_file(file)?;
-        log.append(&format!("[jammer] Hashed: {}", rel));
+    for result in results {
+        let (hash, rel) = result?;
         content.push_str(&format!("{}  {}\n", hash, rel));
     }
 
