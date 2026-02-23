@@ -172,13 +172,22 @@
             const res = await fetch("/api/status");
             if (!res.ok) return;
             const data = await res.json();
+
+            if (data.last_output) {
+              output.style.display = "block";
+              output.textContent = data.last_output;
+              output.scrollTop = output.scrollHeight;
+            }
+
             if (data.running) {
               var extra = data.running_for_secs != null ? "(" + fmtDuration(data.running_for_secs) + ")" : "";
               setIndicator("running", "Job running\u2026", extra);
               runBtn.disabled = true;
             } else if (runBtn.disabled && icon.textContent === ICONS.running) {
-              setIndicator("idle", "Idle");
+              setIndicator(data.last_success ? "done" : "fail",
+                data.last_success ? "Completed successfully" : "Failed");
               runBtn.disabled = false;
+              loadHashes();
             } else if (!runBtn.disabled) {
               var parts = [];
               if (data.jam_count != null) parts.push(data.jam_count + " jam" + (data.jam_count !== 1 ? "s" : ""));
@@ -205,7 +214,7 @@
 
           runBtn.disabled = true;
           output.style.display = "block";
-          output.textContent = "";
+          output.textContent = "Starting job...";
           setIndicator("running", "Job running\u2026");
 
           try {
@@ -214,18 +223,15 @@
               headers: { "X-API-Key": key },
             });
             const data = await res.json();
-            output.textContent = data.output || "(no output)";
 
-            if (data.success) {
-              setIndicator("done", "Completed successfully");
-              loadHashes();
-            } else {
+            if (!data.success) {
+              output.textContent = data.output || "Failed";
               setIndicator("fail", "Failed (HTTP " + res.status + ")");
+              runBtn.disabled = false;
             }
           } catch (err) {
             output.textContent = err.message;
             setIndicator("fail", "Request error");
-          } finally {
             runBtn.disabled = false;
           }
         });
