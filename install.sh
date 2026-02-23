@@ -75,6 +75,11 @@ if [[ -x "$JAMMER_HOME/.cargo/bin/rustup" ]]; then
             CARGO_HOME="$JAMMER_HOME/.cargo" \
             "$JAMMER_HOME/.cargo/bin/rustup" default stable
     fi
+    log_info "Installing Rust nightly (required by nockchain dependency)..."
+    sudo -u jammer \
+        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
+        CARGO_HOME="$JAMMER_HOME/.cargo" \
+        "$JAMMER_HOME/.cargo/bin/rustup" install nightly
 fi
 
 if [[ ! -x "$JAMMER_CARGO" ]]; then

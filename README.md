@@ -83,7 +83,7 @@ Everything runs in a single binary. No nginx, no shell scripts, no grpcurl.
 
 ## Build Requirements
 
-- Rust toolchain (installed automatically by `install.sh`)
+- Rust toolchain (installed automatically by `install.sh`). This project uses **nightly** (see `rust-toolchain.toml`) because the nockchain dependency requires it.
 - `protobuf-compiler` (for gRPC proto generation)
 - `build-essential`, `pkg-config`, `libssl-dev`
 
