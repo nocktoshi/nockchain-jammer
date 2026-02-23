@@ -65,21 +65,16 @@ if [[ ! -x "$JAMMER_CARGO" ]]; then
 fi
 
 if [[ -x "$JAMMER_HOME/.cargo/bin/rustup" ]]; then
-    if ! sudo -u jammer \
-        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-        CARGO_HOME="$JAMMER_HOME/.cargo" \
-        "$JAMMER_HOME/.cargo/bin/rustup" show active-toolchain >/dev/null 2>&1; then
-        log_info "Setting default Rust toolchain..."
-        sudo -u jammer \
-            RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-            CARGO_HOME="$JAMMER_HOME/.cargo" \
-            "$JAMMER_HOME/.cargo/bin/rustup" default stable
-    fi
     log_info "Installing Rust nightly (required by nockchain dependency)..."
     sudo -u jammer \
         RUSTUP_HOME="$JAMMER_HOME/.rustup" \
         CARGO_HOME="$JAMMER_HOME/.cargo" \
         "$JAMMER_HOME/.cargo/bin/rustup" install nightly
+    log_info "Setting default Rust toolchain to nightly..."
+    sudo -u jammer \
+        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
+        CARGO_HOME="$JAMMER_HOME/.cargo" \
+        "$JAMMER_HOME/.cargo/bin/rustup" default nightly
 fi
 
 if [[ ! -x "$JAMMER_CARGO" ]]; then
@@ -104,7 +99,7 @@ chown -R jammer:jammer "$INSTALL_DIR"
 (cd "$INSTALL_DIR" && sudo -u jammer \
     RUSTUP_HOME="$JAMMER_HOME/.rustup" \
     CARGO_HOME="$JAMMER_HOME/.cargo" \
-    "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml")
+    "$JAMMER_CARGO" +nightly build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml")
 
 # ── Install ───────────────────────────────────────────────────────────
 log_info "Installing files..."
