@@ -88,7 +88,7 @@ pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) 
     std::fs::copy(&source_path, &temp_path)
         .with_context(|| format!("Failed to copy {}", source_path.display()))?;
 
-    let bytes = std::fs::read(temp_path)
+    let bytes = std::fs::read(&temp_path)
         .with_context(|| format!("Failed to read copied checkpoint {}", temp_path.display()))?;
 
     let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)
