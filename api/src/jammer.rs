@@ -119,6 +119,15 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
             c
         };
 
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                // Make this process a new process group leader
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+
         let mut child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
@@ -126,13 +135,16 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
             .spawn()
             .context("Failed to spawn nockchain export")?;
 
+        let pgid = child.id();
+
         // Poll for file instead of waiting for process exit (nockchain hangs after export)
         let start = std::time::Instant::now();
         while !target.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
             std::thread::sleep(Duration::from_secs(1));
         }
 
-        let _ = child.kill();
+        // Kill the entire process group (sudo + nockchain)
+        unsafe { libc::kill(-(pgid as i32), libc::SIGKILL); }
         let _ = child.wait();
 
         if !target.exists() {
@@ -150,11 +162,14 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
         // 4. Write manifest
         write_manifest_sync(&html_root, &jams_dir, &manifest_path)?;
 
+        eprintln!("[jammer] Blocking thread done");
         Ok(())
     })
     .await
     .context("jam task panicked")?
     .context("jam task failed")?;
+
+    eprintln!("[jammer] spawn_blocking returned");
 
     Ok(format!("Exported jam for block {}", tip))
 }
@@ -172,6 +187,7 @@ fn hash_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buffer[..n]);
     }
+    eprintln!("[jammer] Hashed file: {}", path.display());
     Ok(hex::encode(hasher.finalize()))
 }
 
@@ -199,6 +215,7 @@ fn collect_hashable_files(html_root: &Path, jams_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path) -> Result<()> {
+    eprintln!("[jammer] Writing manifest: {}", manifest_path.display());
     let files = collect_hashable_files(html_root, jams_dir);
 
     if files.is_empty() {
@@ -241,9 +258,10 @@ pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
     let jams_dir = config.jams_dir.clone();
     let manifest_path = config.manifest_path.clone();
 
-    tokio::task::spawn_blocking(move || {
+    eprintln!("[jammer] Writing manifest: {}", manifest_path.display());
+    let result = tokio::task::spawn_blocking(move || {
         write_manifest_sync(&html_root, &jams_dir, &manifest_path)
-    })
-    .await
-    .context("Manifest task panicked")?
+    }).await.context("Manifest task failed")?;
+    eprintln!("[jammer] Manifest task result: {:?}", result);
+    result.context("Manifest task failed")?
 }

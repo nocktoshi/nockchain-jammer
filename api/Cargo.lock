@@ -729,6 +729,7 @@ dependencies = [
  "axum 0.8.8",
  "chrono",
  "hex",
+ "libc",
  "prost",
  "serde",
  "serde_json",
