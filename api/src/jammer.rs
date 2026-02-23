@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
+use tokio::process::Command;
 use tonic::transport::Channel;
 
 use crate::proto::{
@@ -57,39 +58,35 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 
 pub async fn stop_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Stopping service: {}", config.nockchain_service);
-    let service = config.nockchain_service.clone();
 
-    let status = tokio::task::spawn_blocking(move || {
-        Command::new("systemctl")
-            .args(["stop", &service])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .status()
-            .context("Failed to run systemctl stop")
-    })
-    .await
-    .context("stop task panicked")??;
+    let status = Command::new("systemctl")
+        .args(["stop", "--no-block", &config.nockchain_service])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await
+        .context("Failed to run systemctl stop")?;
 
-    eprintln!("[jammer] Service stopped (exit {}): {}", status, config.nockchain_service);
+    if !status.success() {
+        bail!("systemctl stop failed with exit code {:?}", status.code());
+    }
+
+    eprintln!("[jammer] Stop initiated: {}", config.nockchain_service);
     Ok(())
 }
 
 pub async fn start_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Starting service: {}", config.nockchain_service);
-    let service = config.nockchain_service.clone();
 
-    let status = tokio::task::spawn_blocking(move || {
-        Command::new("systemctl")
-            .args(["start", "--no-block", &service])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .status()
-            .context("Failed to run systemctl start")
-    })
-    .await
-    .context("start task panicked")??;
+    let status = TokioCommand::new("systemctl")
+        .args(["start", "--no-block", &config.nockchain_service])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await
+        .context("Failed to run systemctl start")?;
 
     if !status.success() {
         bail!("systemctl start failed with exit code {:?}", status.code());
@@ -260,10 +257,10 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
         .context("Failed to get tip block")?;
     eprintln!("[jammer] Tip block: {}", tip);
 
-    stop_service(config)
-        .await
-        .context("Failed to stop nockchain service")?;
+    // Start stopping service (fire and forget)
+    stop_service(config).await?;
 
+    // Immediately start export - nockchain export can run while service is stopping
     export_jam(config, tip).await.context("Failed to export jam")?;
 
     if let Err(e) = start_service(config).await {
