@@ -173,17 +173,17 @@ fn hash_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn collect_hashable_files(config: &JammerConfig) -> Vec<PathBuf> {
+fn collect_hashable_files(html_root: &Path, jams_dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for name in ["index.html", "privacy.html"] {
-        let path = config.html_root.join(name);
+        let path = html_root.join(name);
         if path.exists() {
             files.push(path);
         }
     }
 
-    if let Ok(entries) = std::fs::read_dir(&config.jams_dir) {
+    if let Ok(entries) = std::fs::read_dir(jams_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jam") {
@@ -196,42 +196,50 @@ fn collect_hashable_files(config: &JammerConfig) -> Vec<PathBuf> {
     files
 }
 
-pub fn write_manifest(config: &JammerConfig) -> Result<()> {
-    let files = collect_hashable_files(config);
+pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
+    let html_root = config.html_root.clone();
+    let jams_dir = config.jams_dir.clone();
+    let manifest_path = config.manifest_path.clone();
 
-    if files.is_empty() {
-        bail!("No files found to hash");
-    }
+    tokio::task::spawn_blocking(move || {
+        let files = collect_hashable_files(&html_root, &jams_dir);
 
-    let mut content = String::new();
-    for file in &files {
-        let rel = file
-            .strip_prefix(&config.html_root)
-            .unwrap_or(file)
-            .to_string_lossy();
-        let hash = hash_file(file)?;
-        content.push_str(&format!("{}  {}\n", hash, rel));
-    }
+        if files.is_empty() {
+            bail!("No files found to hash");
+        }
 
-    let tmp = config.manifest_path.with_extension("tmp");
-    std::fs::write(&tmp, &content).context("Failed to write temp manifest")?;
-    std::fs::rename(&tmp, &config.manifest_path).context("Failed to rename manifest")?;
+        let mut content = String::new();
+        for file in &files {
+            let rel = file
+                .strip_prefix(&html_root)
+                .unwrap_or(file)
+                .to_string_lossy();
+            let hash = hash_file(file)?;
+            content.push_str(&format!("{}  {}\n", hash, rel));
+        }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(
-            &config.manifest_path,
-            std::fs::Permissions::from_mode(0o644),
+        let tmp = manifest_path.with_extension("tmp");
+        std::fs::write(&tmp, &content).context("Failed to write temp manifest")?;
+        std::fs::rename(&tmp, &manifest_path).context("Failed to rename manifest")?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                &manifest_path,
+                std::fs::Permissions::from_mode(0o644),
+            );
+        }
+
+        eprintln!(
+            "[jammer] Manifest written: {} ({} files)",
+            manifest_path.display(),
+            files.len()
         );
-    }
-
-    eprintln!(
-        "[jammer] Manifest written: {} ({} files)",
-        config.manifest_path.display(),
-        files.len()
-    );
-    Ok(())
+        Ok(())
+    })
+    .await
+    .context("Manifest task panicked")?
 }
 
 /// Full jam creation flow: get tip -> stop service -> export -> restart -> write manifest.
@@ -253,7 +261,7 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
 
     export_result.context("Failed to export jam")?;
 
-    write_manifest(config).context("Failed to write manifest")?;
+    write_manifest(config).await.context("Failed to write manifest")?;
 
     Ok(format!("Exported jam for block {}", tip))
 }

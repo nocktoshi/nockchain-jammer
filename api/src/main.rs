@@ -132,7 +132,7 @@ async fn make_jam(
     (code, Json(JobResult { success, output }))
 }
 
-fn count_jams(dir: &str) -> usize {
+fn count_jams(dir: PathBuf) -> usize {
     std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -150,13 +150,22 @@ fn count_jams(dir: &str) -> usize {
 async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let job = state.job.lock().await;
     let running_for_secs = job.started_at.map(|t| t.elapsed().as_secs());
-    let jams_dir = state.config.jams_dir.to_string_lossy().to_string();
+    let last_completed = job.last_completed.clone();
+    let last_success = job.last_success;
+    let running = job.running;
+    drop(job);
+
+    let jams_dir = state.config.jams_dir.clone();
+    let jam_count = tokio::task::spawn_blocking(move || count_jams(jams_dir))
+        .await
+        .unwrap_or(0);
+
     Json(StatusResult {
-        running: job.running,
+        running,
         running_for_secs,
-        jam_count: count_jams(&jams_dir),
-        last_completed: job.last_completed.clone(),
-        last_success: job.last_success,
+        jam_count,
+        last_completed,
+        last_success,
     })
 }
 
