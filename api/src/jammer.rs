@@ -1,10 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command as StdCommand, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
-use tokio::process::Command;
 use tonic::transport::Channel;
 
 use crate::proto::{
@@ -59,7 +58,7 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 pub async fn stop_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Stopping service: {}", config.nockchain_service);
 
-    let status = Command::new("systemctl")
+    let status = tokio::process::Command::new("systemctl")
         .args(["stop", "--no-block", &config.nockchain_service])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -79,7 +78,7 @@ pub async fn stop_service(config: &JammerConfig) -> Result<()> {
 pub async fn start_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Starting service: {}", config.nockchain_service);
 
-    let status = TokioCommand::new("systemctl")
+    let status = tokio::process::Command::new("systemctl")
         .args(["start", "--no-block", &config.nockchain_service])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -121,9 +120,9 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
     let dir = config.nockchain_dir.clone();
     let target = jam_path.clone();
 
-    let mut child = tokio::task::spawn_blocking(move || -> Result<Child> {
+    let mut child =     tokio::task::spawn_blocking(move || -> Result<Child> {
         let mut cmd = if let Some(user) = &user {
-            let mut c = Command::new("sudo");
+            let mut c = StdCommand::new("sudo");
             c.arg("-u").arg(user)
                 .arg(bin.as_os_str())
                 .arg("--export-state-jam")
@@ -131,7 +130,7 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
                 .current_dir(&dir);
             c
         } else {
-            let mut c = Command::new(&bin);
+            let mut c = StdCommand::new(&bin);
             c.arg("--export-state-jam")
                 .arg(&target)
                 .current_dir(&dir);
