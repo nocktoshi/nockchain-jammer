@@ -33,6 +33,8 @@ The installer copies `.env` (or `.env.example`) to `/etc/nockchain-jammer.env` f
 
 ## Architecture
 
+Export is done **from checkpoint files** while the nockchain node keeps running. The jammer reads `0.chkjam` and `1.chkjam` from `NOCKCHAIN_DIR/.data.nockchain/checkpoints/`, picks the newer by event number, decodes it, extracts kernel state (axis 6), and writes the same `.jam` format—without stopping the node or spawning a second nockchain process.
+
 ```mermaid
 flowchart LR
     Browser --> Axum["Axum binary :80"]
@@ -40,8 +42,8 @@ flowchart LR
     Axum -->|"/api/make-jam"| Jam["Jam creation"]
     Axum -->|"/api/status"| Status["Job status"]
     Jam -->|"tonic gRPC"| Node["Nockchain node RPC"]
-    Jam -->|"systemctl"| Systemd["Stop/start nockchain service"]
-    Jam -->|"sudo -u"| Export["nockchain --export-state-jam"]
+    Jam -->|"Read checkpoints"| Chk["0.chkjam / 1.chkjam"]
+    Chk -->|"chkjam → .jam in-process"| Export["ExportedState .jam"]
     Jam -->|"sha2"| Hash["SHA-256 manifest"]
 ```
 
@@ -75,9 +77,9 @@ Everything runs in a single binary. No nginx, no shell scripts, no grpcurl.
 | `HTML_ROOT` | `/usr/share/nginx/html` | Web root (for manifest relative paths) |
 | `NOCKCHAIN_RPC` | `localhost:5556` | Nockchain gRPC endpoint |
 | `NOCKCHAIN_BIN` | `/root/.cargo/bin/nockchain` | Path to nockchain binary |
-| `NOCKCHAIN_DIR` | `/root/nockchain` | Nockchain data directory |
-| `NOCKCHAIN_USER` | root | Run export as this user via sudo |
-| `NOCKCHAIN_SERVICE` | `nockchain` | Systemd service name to stop/start |
+| `NOCKCHAIN_DIR` | `/root/nockchain` | Nockchain repo/data directory; checkpoints are read from `NOCKCHAIN_DIR/.data.nockchain/checkpoints/` |
+| `NOCKCHAIN_USER` | *(none)* | Unused (reserved for future use) |
+| `NOCKCHAIN_SERVICE` | `nockchain` | Unused (reserved for future use) |
 
 ## Build Requirements
 

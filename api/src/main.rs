@@ -211,6 +211,7 @@ async fn main() {
 
     let jams_dir = env_or("JAMS_DIR", "/usr/share/nginx/html/jams");
     let html_root = env_or("HTML_ROOT", "/usr/share/nginx/html");
+    let nockchain_dir = PathBuf::from(env_or("NOCKCHAIN_DIR", "/root/nockchain"));
 
     let config = jammer::JammerConfig {
         manifest_path: PathBuf::from(env_or(
@@ -224,7 +225,8 @@ async fn main() {
             "NOCKCHAIN_BIN",
             "/root/.cargo/bin/nockchain",
         )),
-        nockchain_dir: PathBuf::from(env_or("NOCKCHAIN_DIR", "/root/nockchain")),
+        nockchain_dir: nockchain_dir.clone(),
+        checkpoints_dir: nockchain_dir.join(".data.nockchain").join("checkpoints"),
         nockchain_user: std::env::var("NOCKCHAIN_USER").ok().filter(|s| !s.is_empty()),
         nockchain_service: env_or("NOCKCHAIN_SERVICE", "nockchain"),
     };
@@ -239,6 +241,7 @@ async fn main() {
         config.nockchain_user.as_deref().unwrap_or("(none)")
     );
     eprintln!("config: NOCKCHAIN_SERVICE={}", config.nockchain_service);
+    eprintln!("config: CHECKPOINTS_DIR={}", config.checkpoints_dir.display());
 
     let state = Arc::new(AppState {
         api_key,

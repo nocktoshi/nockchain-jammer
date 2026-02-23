@@ -1,8 +1,13 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use nockapp::export::ExportedState;
+use nockapp::kernel::form::{LoadState, STATE_AXIS};
+use nockapp::noun::slab::NounSlab;
+use nockapp::noun::slab::NockJammer;
+use nockapp::save::{JammedCheckpointV2, SaveableCheckpoint};
+use nockvm::noun::Slots;
 use sha2::{Digest, Sha256};
 use tonic::transport::Channel;
 
@@ -19,6 +24,7 @@ pub struct JammerConfig {
     pub nockchain_rpc: String,
     pub nockchain_bin: PathBuf,
     pub nockchain_dir: PathBuf,
+    pub checkpoints_dir: PathBuf,
     pub nockchain_user: Option<String>,
     pub nockchain_service: String,
 }
@@ -56,17 +62,73 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
     }
 }
 
-fn run_cmd(program: &str, args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
-    Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .status()
+/// Exports kernel state from the newest of 0.chkjam/1.chkjam (by mtime) to a .jam file (ExportedState format).
+/// V2 checkpoints only. Does not start or stop the node.
+/// Copies checkpoint files to a temp dir first so the running node can overwrite them safely.
+pub fn chkjam_to_jam(
+    checkpoints_dir: &Path,
+    out_jam_path: &Path,
+    log: &JobLog,
+) -> Result<()> {
+    let path_0 = checkpoints_dir.join("0.chkjam");
+    let path_1 = checkpoints_dir.join("1.chkjam");
+
+    let source_path = [path_0.as_path(), path_1.as_path()]
+        .iter()
+        .filter(|p| p.exists())
+        .filter_map(|p| Some((*p, std::fs::metadata(p).ok()?.modified().ok()?)))
+        .max_by_key(|(_, t)| *t)
+        .map(|(p, _)| p)
+        .ok_or_else(|| anyhow::anyhow!("No checkpoint found in {} (need 0.chkjam or 1.chkjam)", checkpoints_dir.display()))?;
+
+    let _temp_dir = tempfile::tempdir().context("Failed to create temp dir for checkpoint copy")?;
+    let temp_path = _temp_dir.path().join("checkpoint.chkjam");
+
+    std::fs::copy(&source_path, &temp_path)
+        .with_context(|| format!("Failed to copy {}", source_path.display()))?;
+
+    let bytes = std::fs::read(temp_path)
+        .with_context(|| format!("Failed to read copied checkpoint {}", temp_path.display()))?;
+
+    let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)
+        .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
+
+    log.append(&format!(
+        "[jammer] Using checkpoint event_num {}",
+        jammed.event_num
+    ));
+
+    let saveable = SaveableCheckpoint::from_jammed_checkpoint_v2::<NockJammer>(jammed, None)
+        .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
+
+    let arvo_root = unsafe { saveable.state.root() };
+    let kernel_noun = arvo_root
+        .slot(STATE_AXIS)
+        .context("Failed to read kernel state (axis 6) from arvo")?;
+
+    let mut kernel_slab = NounSlab::new();
+    kernel_slab.copy_into(kernel_noun);
+
+    let load_state = LoadState {
+        ker_hash: saveable.ker_hash,
+        event_num: saveable.event_num,
+        kernel_state: kernel_slab,
+    };
+
+    let bytes = ExportedState::from_loadstate(load_state)
+        .encode()
+        .context("ExportedState encode")?;
+
+    std::fs::write(out_jam_path, &bytes).with_context(|| {
+        format!("Failed to write jam file: {}", out_jam_path.display())
+    })?;
+
+    log.append(&format!("[jammer] Exported jam: {}", out_jam_path.display()));
+    Ok(())
 }
 
-/// Runs the entire stop -> export -> start -> manifest flow on a blocking thread.
-/// All subprocess management uses std::process to avoid tokio SIGCHLD issues.
+/// Runs the entire export → manifest flow on a blocking thread.
+/// Uses standalone chkjam→.jam export (no node stop/start).
 pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
     let tip = get_tip_block(config)
         .await
@@ -85,11 +147,11 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
         return Ok(format!("Jam for block {} already exists", tip));
     }
 
-    let service = config.nockchain_service.clone();
-    let user = config.nockchain_user.clone();
-    let bin = config.nockchain_bin.clone();
-    let dir = config.nockchain_dir.clone();
-    let target = jam_path.clone();
+    std::fs::create_dir_all(&config.jams_dir).context("Failed to create jams directory")?;
+    log.append(&format!("[jammer] Exporting from checkpoints to: {}", jam_path.display()));
+
+    let checkpoints_dir = config.checkpoints_dir.clone();
+    let out_path = jam_path.to_path_buf();
     let jams_dir = config.jams_dir.clone();
     let html_root = config.html_root.clone();
     let manifest_path = config.manifest_path.clone();
@@ -98,67 +160,13 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
 
     std::thread::spawn(move || {
-        let result = (|| -> Result<()> {
-            std::fs::create_dir_all(&jams_dir)
-                .context("Failed to create jams directory")?;
-
-            log.append(&format!("[jammer] Stopping service: {}", service));
-            match run_cmd("systemctl", &["stop", &service]) {
-                Ok(s) => log.append(&format!("[jammer] Service stopped (exit {})", s)),
-                Err(e) => log.append(&format!("[jammer] systemctl stop error: {}", e)),
+        let result = chkjam_to_jam(&checkpoints_dir, &out_path, &log);
+        if result.is_ok() {
+            if let Err(e) = write_manifest_sync(&html_root, &jams_dir, &manifest_path, &log) {
+                let _ = tx.send(Err(e));
+                return;
             }
-
-            log.append(&format!("[jammer] Exporting to: {}", target.display()));
-            let mut cmd = if let Some(ref user) = user {
-                let mut c = Command::new("sudo");
-                c.arg("-u").arg(user)
-                    .arg(bin.as_os_str())
-                    .arg("--export-state-jam")
-                    .arg(&target)
-                    .current_dir(&dir);
-                c
-            } else {
-                let mut c = Command::new(&bin);
-                c.arg("--export-state-jam")
-                    .arg(&target)
-                    .current_dir(&dir);
-                c
-            };
-
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                cmd.pre_exec(|| {
-                    libc::setpgid(0, 0);
-                    Ok(())
-                });
-            }
-
-            let mut child = cmd
-                .stdin(Stdio::null())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .context("Failed to spawn nockchain export")?;
-
-            let status = child.wait().context("Failed to wait on export process")?;
-            log.append(&format!("[jammer] Export process exited: {}", status));
-
-            if !target.exists() {
-                bail!("Export exited ({}) but no jam file at {}", status, target.display());
-            }
-            log.append(&format!("[jammer] Export done: {}", target.display()));
-
-            log.append(&format!("[jammer] Starting service: {}", service));
-            match run_cmd("systemctl", &["start", "--no-block", &service]) {
-                Ok(s) => log.append(&format!("[jammer] Service start issued (exit {})", s)),
-                Err(e) => log.append(&format!("[jammer] systemctl start error: {}", e)),
-            }
-
-            write_manifest_sync(&html_root, &jams_dir, &manifest_path, &log)?;
-
-            Ok(())
-        })();
-
+        }
         let _ = tx.send(result);
     });
 
@@ -166,7 +174,7 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
         .context("jam thread dropped sender")?
         .context("jam task failed")?;
 
-    Ok(format!("Exported jam for block {}", tip))
+    return Ok(format!("Exported jam for block {}", tip));
 }
 
 fn hash_file(path: &Path) -> Result<String> {
