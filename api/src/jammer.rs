@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
-use tokio::process::Command;
 use tonic::transport::Channel;
 
 use crate::proto::{
@@ -57,41 +57,45 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 
 pub async fn stop_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Stopping service: {}", config.nockchain_service);
+    let service = config.nockchain_service.clone();
 
-    let output = Command::new("systemctl")
-        .args(["stop", &config.nockchain_service])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .context("Failed to run systemctl stop")?;
+    let status = tokio::task::spawn_blocking(move || {
+        Command::new("systemctl")
+            .args(["stop", &service])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .status()
+            .context("Failed to run systemctl stop")
+    })
+    .await
+    .context("stop task panicked")??;
 
-    eprintln!("[jammer] Service stopped (exit {}): {}", output.status, config.nockchain_service);
+    eprintln!("[jammer] Service stopped (exit {}): {}", status, config.nockchain_service);
     Ok(())
 }
 
 pub async fn start_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Starting service: {}", config.nockchain_service);
+    let service = config.nockchain_service.clone();
 
-    let status = Command::new("systemctl")
-        .args(["start", "--no-block", &config.nockchain_service])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .status()
-        .await
-        .context("Failed to run systemctl start")?;
+    let status = tokio::task::spawn_blocking(move || {
+        Command::new("systemctl")
+            .args(["start", "--no-block", &service])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .status()
+            .context("Failed to run systemctl start")
+    })
+    .await
+    .context("start task panicked")??;
 
     if !status.success() {
-        bail!(
-            "systemctl start failed with exit code {:?}",
-            status.code()
-        );
+        bail!("systemctl start failed with exit code {:?}", status.code());
     }
 
-    eprintln!(
-        "[jammer] Service started: {}",
-        config.nockchain_service
-    );
+    eprintln!("[jammer] Service started: {}", config.nockchain_service);
     Ok(())
 }
 
@@ -115,29 +119,36 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
         config.nockchain_dir.display()
     );
 
-    let mut cmd = if let Some(user) = &config.nockchain_user {
-        let mut c = Command::new("sudo");
-        c.arg("-u").arg(user)
-            .arg(config.nockchain_bin.as_os_str())
-            .arg("--export-state-jam")
-            .arg(&jam_path)
-            .current_dir(&config.nockchain_dir);
-        c
-    } else {
-        let mut c = Command::new(&config.nockchain_bin);
-        c.arg("--export-state-jam")
-            .arg(&jam_path)
-            .current_dir(&config.nockchain_dir);
-        c
-    };
+    let user = config.nockchain_user.clone();
+    let bin = config.nockchain_bin.clone();
+    let dir = config.nockchain_dir.clone();
+    let target = jam_path.clone();
 
-    let status = cmd
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status()
-        .await
-        .context("Failed to run nockchain export")?;
+    let status = tokio::task::spawn_blocking(move || {
+        let mut cmd = if let Some(user) = &user {
+            let mut c = Command::new("sudo");
+            c.arg("-u").arg(user)
+                .arg(bin.as_os_str())
+                .arg("--export-state-jam")
+                .arg(&target)
+                .current_dir(&dir);
+            c
+        } else {
+            let mut c = Command::new(&bin);
+            c.arg("--export-state-jam")
+                .arg(&target)
+                .current_dir(&dir);
+            c
+        };
+
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .context("Failed to run nockchain export")
+    })
+    .await
+    .context("export task panicked")??;
 
     eprintln!("[jammer] Export process exited: {}", status);
 
@@ -245,13 +256,11 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
         .await
         .context("Failed to stop nockchain service")?;
 
-    let export_result = export_jam(config, tip).await;
+    export_jam(config, tip).await.context("Failed to export jam")?;
 
     if let Err(e) = start_service(config).await {
         eprintln!("[jammer] WARNING: Failed to restart service: {}", e);
     }
-
-    export_result.context("Failed to export jam")?;
 
     write_manifest(config).await.context("Failed to write manifest")?;
 
