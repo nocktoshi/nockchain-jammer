@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -124,7 +124,7 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
     let dir = config.nockchain_dir.clone();
     let target = jam_path.clone();
 
-    let status = tokio::task::spawn_blocking(move || {
+    let mut child = tokio::task::spawn_blocking(move || -> Result<Child> {
         let mut cmd = if let Some(user) = &user {
             let mut c = Command::new("sudo");
             c.arg("-u").arg(user)
@@ -141,19 +141,27 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
             c
         };
 
-        cmd.stdin(Stdio::null())
+        let child = cmd.stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .status()
-            .context("Failed to run nockchain export")
+            .spawn()
+            .context("Failed to spawn nockchain export")?;
+        Ok(child)
     })
     .await
-    .context("export task panicked")??;
+    .context("spawn export task panicked")??;
 
-    eprintln!("[jammer] Export process exited: {}", status);
+    // Wait for jam file to appear
+    let start = tokio::time::Instant::now();
+    while !jam_path.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Kill the child process regardless - nockchain doesn't exit properly
+    let _ = child.kill().await;
 
     if !jam_path.exists() {
-        bail!("Export exited ({}) but no jam file at {}", status, jam_path.display());
+        bail!("Jam file never appeared at {}", jam_path.display());
     }
 
     eprintln!("[jammer] Exported: {}", jam_path.display());
