@@ -124,7 +124,7 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
     let dir = config.nockchain_dir.clone();
     let target = jam_path.clone();
 
-    let mut child =     tokio::task::spawn_blocking(move || -> Result<Child> {
+    let mut child = tokio::task::spawn_blocking(move || -> Result<Child> {
         let mut cmd = if let Some(user) = &user {
             let mut c = StdCommand::new("sudo");
             c.arg("-u").arg(user)
@@ -153,16 +153,26 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
 
     // Wait for jam file to appear
     let start = tokio::time::Instant::now();
-    while !jam_path.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        if jam_path.exists() {
+            eprintln!("[jammer] Jam file detected on disk after {:.1}s", start.elapsed().as_secs_f64());
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(15 * 60) {
+            // Clean up child before bailing
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("Jam file never appeared at {}", jam_path.display());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    // Kill the child process regardless - nockchain doesn't exit properly
-    let _ = child.kill();
-
-    if !jam_path.exists() {
-        bail!("Jam file never appeared at {}", jam_path.display());
-    }
+    // Kill and reap the child process on a blocking thread
+    // (nockchain doesn't exit properly, and Child::wait blocks)
+    tokio::task::spawn_blocking(move || {
+        let _ = child.kill();
+        let _ = child.wait();
+    });
 
     eprintln!("[jammer] Exported: {}", jam_path.display());
     Ok(jam_path)
