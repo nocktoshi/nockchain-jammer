@@ -65,16 +65,18 @@ Everything runs in a single binary. No nginx, no shell scripts, no grpcurl.
 
 ## Environment Variables
 
+`/etc/nockchain-jammer.env`
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `API_KEY` | *(empty)* | Shared secret for `X-API-Key` header |
-| `API_PORT` | `80` | Port to listen on |
+| `API_PORT` | `3001` | Port to listen on |
 | `JAMS_DIR` | `/usr/share/nginx/html/jams` | Directory for jam files and website assets |
 | `HTML_ROOT` | `/usr/share/nginx/html` | Web root (for manifest relative paths) |
 | `NOCKCHAIN_RPC` | `localhost:5556` | Nockchain gRPC endpoint |
 | `NOCKCHAIN_BIN` | `/root/.cargo/bin/nockchain` | Path to nockchain binary |
 | `NOCKCHAIN_DIR` | `/root/nockchain` | Nockchain data directory |
-| `NOCKCHAIN_USER` | *(none)* | Run export as this user via sudo |
+| `NOCKCHAIN_USER` | root | Run export as this user via sudo |
 | `NOCKCHAIN_SERVICE` | `nockchain` | Systemd service name to stop/start |
 
 ## Build Requirements
