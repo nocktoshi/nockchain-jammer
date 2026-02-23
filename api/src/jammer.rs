@@ -115,42 +115,34 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
         config.nockchain_dir.display()
     );
 
-    let status = if let Some(user) = &config.nockchain_user {
-        Command::new("sudo")
-            .arg("-u")
-            .arg(user)
-            .arg("bash")
-            .arg("-c")
-            .arg(format!(
-                "cd \"{}\" && \"{}\" --export-state-jam \"{}\"",
-                config.nockchain_dir.display(),
-                config.nockchain_bin.display(),
-                jam_path.display()
-            ))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()
-            .await
-            .context("Failed to run nockchain export")?
-    } else {
-        Command::new(&config.nockchain_bin)
+    let mut cmd = if let Some(user) = &config.nockchain_user {
+        let mut c = Command::new("sudo");
+        c.arg("-u").arg(user)
+            .arg(config.nockchain_bin.as_os_str())
             .arg("--export-state-jam")
             .arg(&jam_path)
-            .current_dir(&config.nockchain_dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()
-            .await
-            .context("Failed to run nockchain export")?
+            .current_dir(&config.nockchain_dir);
+        c
+    } else {
+        let mut c = Command::new(&config.nockchain_bin);
+        c.arg("--export-state-jam")
+            .arg(&jam_path)
+            .current_dir(&config.nockchain_dir);
+        c
     };
 
-    if !status.success() {
-        bail!(
-            "nockchain export failed with exit code {:?}",
-            status.code()
-        );
+    let status = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await
+        .context("Failed to run nockchain export")?;
+
+    eprintln!("[jammer] Export process exited: {}", status);
+
+    if !jam_path.exists() {
+        bail!("Export exited ({}) but no jam file at {}", status, jam_path.display());
     }
 
     eprintln!("[jammer] Exported: {}", jam_path.display());
