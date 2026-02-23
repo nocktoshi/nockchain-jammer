@@ -156,9 +156,9 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     drop(job);
 
     let jams_dir = state.config.jams_dir.clone();
-    let jam_count = tokio::task::spawn_blocking(move || count_jams(jams_dir))
-        .await
-        .unwrap_or(0);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || { let _ = tx.send(count_jams(jams_dir)); });
+    let jam_count = rx.await.unwrap_or(0);
 
     Json(StatusResult {
         running,

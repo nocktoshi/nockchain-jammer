@@ -89,87 +89,88 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
     let html_root = config.html_root.clone();
     let manifest_path = config.manifest_path.clone();
 
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        // Ensure jams directory exists
-        std::fs::create_dir_all(&jams_dir)
-            .context("Failed to create jams directory")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
 
-        // 1. Stop nockchain service (blocking - waits for it to actually stop)
-        eprintln!("[jammer] Stopping service: {}", service);
-        match run_cmd("systemctl", &["stop", &service]) {
-            Ok(s) => eprintln!("[jammer] Service stopped (exit {})", s),
-            Err(e) => eprintln!("[jammer] systemctl stop error: {}", e),
-        }
+    std::thread::spawn(move || {
+        let result = (|| -> Result<()> {
+            std::fs::create_dir_all(&jams_dir)
+                .context("Failed to create jams directory")?;
 
-        // 2. Run nockchain export
-        eprintln!("[jammer] Exporting to: {}", target.display());
-        let mut cmd = if let Some(ref user) = user {
-            let mut c = Command::new("sudo");
-            c.arg("-u").arg(user)
-                .arg(bin.as_os_str())
-                .arg("--export-state-jam")
-                .arg(&target)
-                .current_dir(&dir);
-            c
-        } else {
-            let mut c = Command::new(&bin);
-            c.arg("--export-state-jam")
-                .arg(&target)
-                .current_dir(&dir);
-            c
-        };
+            // 1. Stop nockchain service
+            eprintln!("[jammer] Stopping service: {}", service);
+            match run_cmd("systemctl", &["stop", &service]) {
+                Ok(s) => eprintln!("[jammer] Service stopped (exit {})", s),
+                Err(e) => eprintln!("[jammer] systemctl stop error: {}", e),
+            }
 
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                // Make this process a new process group leader
-                libc::setpgid(0, 0);
-                Ok(())
-            });
-        }
+            // 2. Run nockchain export
+            eprintln!("[jammer] Exporting to: {}", target.display());
+            let mut cmd = if let Some(ref user) = user {
+                let mut c = Command::new("sudo");
+                c.arg("-u").arg(user)
+                    .arg(bin.as_os_str())
+                    .arg("--export-state-jam")
+                    .arg(&target)
+                    .current_dir(&dir);
+                c
+            } else {
+                let mut c = Command::new(&bin);
+                c.arg("--export-state-jam")
+                    .arg(&target)
+                    .current_dir(&dir);
+                c
+            };
 
-        let mut child = cmd
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .context("Failed to spawn nockchain export")?;
+            use std::os::unix::process::CommandExt;
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::setpgid(0, 0);
+                    Ok(())
+                });
+            }
 
-        let pgid = child.id();
+            let mut child = cmd
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .context("Failed to spawn nockchain export")?;
 
-        // Poll for file instead of waiting for process exit (nockchain hangs after export)
-        let start = std::time::Instant::now();
-        while !target.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
-            std::thread::sleep(Duration::from_secs(1));
-        }
+            let pgid = child.id();
 
-        // Kill the entire process group (sudo + nockchain)
-        unsafe { libc::kill(-(pgid as i32), libc::SIGKILL); }
-        let _ = child.wait();
+            let start = std::time::Instant::now();
+            while !target.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
+                std::thread::sleep(Duration::from_secs(1));
+            }
 
-        if !target.exists() {
-            bail!("Jam file never appeared at {}", target.display());
-        }
-        eprintln!("[jammer] Export done: {}", target.display());
+            unsafe { libc::kill(-(pgid as i32), libc::SIGKILL); }
+            let _ = child.wait();
 
-        // 3. Restart service (non-blocking)
-        eprintln!("[jammer] Starting service: {}", service);
-        match run_cmd("systemctl", &["start", "--no-block", &service]) {
-            Ok(s) => eprintln!("[jammer] Service start issued (exit {})", s),
-            Err(e) => eprintln!("[jammer] systemctl start error: {}", e),
-        }
+            if !target.exists() {
+                bail!("Jam file never appeared at {}", target.display());
+            }
+            eprintln!("[jammer] Export done: {}", target.display());
 
-        // 4. Write manifest
-        write_manifest_sync(&html_root, &jams_dir, &manifest_path)?;
+            // 3. Restart service
+            eprintln!("[jammer] Starting service: {}", service);
+            match run_cmd("systemctl", &["start", "--no-block", &service]) {
+                Ok(s) => eprintln!("[jammer] Service start issued (exit {})", s),
+                Err(e) => eprintln!("[jammer] systemctl start error: {}", e),
+            }
 
-        eprintln!("[jammer] Blocking thread done");
-        Ok(())
-    })
-    .await
-    .context("jam task panicked")?
-    .context("jam task failed")?;
+            // 4. Write manifest
+            write_manifest_sync(&html_root, &jams_dir, &manifest_path)?;
 
-    eprintln!("[jammer] spawn_blocking returned");
+            Ok(())
+        })();
+
+        eprintln!("[jammer] Thread done, sending result");
+        let _ = tx.send(result);
+    });
+
+    rx.await
+        .context("jam thread dropped sender")?
+        .context("jam task failed")?;
 
     Ok(format!("Exported jam for block {}", tip))
 }
@@ -258,10 +259,12 @@ pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
     let jams_dir = config.jams_dir.clone();
     let manifest_path = config.manifest_path.clone();
 
-    eprintln!("[jammer] Writing manifest: {}", manifest_path.display());
-    let result = tokio::task::spawn_blocking(move || {
-        write_manifest_sync(&html_root, &jams_dir, &manifest_path)
-    }).await.context("Manifest task failed")?;
-    eprintln!("[jammer] Manifest task result: {:?}", result);
-    result.context("Manifest task failed")
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
+    std::thread::spawn(move || {
+        let result = write_manifest_sync(&html_root, &jams_dir, &manifest_path);
+        let _ = tx.send(result);
+    });
+    rx.await
+        .context("manifest thread dropped sender")?
+        .context("Manifest task failed")
 }
