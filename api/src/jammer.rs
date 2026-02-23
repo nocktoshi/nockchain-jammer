@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use nockapp::export::ExportedState;
 use nockapp::kernel::form::{LoadState, STATE_AXIS};
-use nockapp::noun::slab::NounSlab;
 use nockapp::noun::slab::NockJammer;
+use nockapp::noun::slab::NounSlab;
 use nockapp::save::{JammedCheckpointV2, SaveableCheckpoint};
 use nockvm::noun::Slots;
 use sha2::{Digest, Sha256};
@@ -65,11 +65,7 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 /// Exports kernel state from the newest of 0.chkjam/1.chkjam (by mtime) to a .jam file (ExportedState format).
 /// V2 checkpoints only. Does not start or stop the node.
 /// Copies checkpoint files to a temp dir first so the running node can overwrite them safely.
-pub fn chkjam_to_jam(
-    checkpoints_dir: &Path,
-    out_jam_path: &Path,
-    log: &JobLog,
-) -> Result<()> {
+pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) -> Result<()> {
     let path_0 = checkpoints_dir.join("0.chkjam");
     let path_1 = checkpoints_dir.join("1.chkjam");
 
@@ -79,7 +75,12 @@ pub fn chkjam_to_jam(
         .filter_map(|p| Some((*p, std::fs::metadata(p).ok()?.modified().ok()?)))
         .max_by_key(|(_, t)| *t)
         .map(|(p, _)| p)
-        .ok_or_else(|| anyhow::anyhow!("No checkpoint found in {} (need 0.chkjam or 1.chkjam)", checkpoints_dir.display()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No checkpoint found in {} (need 0.chkjam or 1.chkjam)",
+                checkpoints_dir.display()
+            )
+        })?;
 
     let _temp_dir = tempfile::tempdir().context("Failed to create temp dir for checkpoint copy")?;
     let temp_path = _temp_dir.path().join("checkpoint.chkjam");
@@ -119,11 +120,13 @@ pub fn chkjam_to_jam(
         .encode()
         .context("ExportedState encode")?;
 
-    std::fs::write(out_jam_path, &bytes).with_context(|| {
-        format!("Failed to write jam file: {}", out_jam_path.display())
-    })?;
+    std::fs::write(out_jam_path, &bytes)
+        .with_context(|| format!("Failed to write jam file: {}", out_jam_path.display()))?;
 
-    log.append(&format!("[jammer] Exported jam: {}", out_jam_path.display()));
+    log.append(&format!(
+        "[jammer] Exported jam: {}",
+        out_jam_path.display()
+    ));
     Ok(())
 }
 
@@ -142,13 +145,19 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
     let jam_path = config.jams_dir.join(format!("{}.jam", tip));
 
     if jam_path.exists() {
-        log.append(&format!("[jammer] Jam already exists: {} (skipping)", jam_path.display()));
+        log.append(&format!(
+            "[jammer] Jam already exists: {} (skipping)",
+            jam_path.display()
+        ));
         write_manifest(config, log).await?;
         return Ok(format!("Jam for block {} already exists", tip));
     }
 
     std::fs::create_dir_all(&config.jams_dir).context("Failed to create jams directory")?;
-    log.append(&format!("[jammer] Exporting from checkpoints to: {}", jam_path.display()));
+    log.append(&format!(
+        "[jammer] Exporting from checkpoints to: {}",
+        jam_path.display()
+    ));
 
     let checkpoints_dir = config.checkpoints_dir.clone();
     let out_path = jam_path.to_path_buf();
@@ -217,8 +226,16 @@ fn collect_hashable_files(html_root: &Path, jams_dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path, log: &JobLog) -> Result<()> {
-    log.append(&format!("[jammer] Writing manifest: {}", manifest_path.display()));
+fn write_manifest_sync(
+    html_root: &Path,
+    jams_dir: &Path,
+    manifest_path: &Path,
+    log: &JobLog,
+) -> Result<()> {
+    log.append(&format!(
+        "[jammer] Writing manifest: {}",
+        manifest_path.display()
+    ));
     let files = collect_hashable_files(html_root, jams_dir);
 
     if files.is_empty() {
@@ -227,15 +244,22 @@ fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path, 
 
     // Hash all files in parallel
     let results: Vec<Result<(String, String)>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = files.iter().map(|file| {
-            scope.spawn(|| -> Result<(String, String)> {
-                let rel = file.strip_prefix(html_root).unwrap_or(file).to_string_lossy().to_string();
-                log.append(&format!("[jammer] Hashing: {}", rel));
-                let hash = hash_file(file)?;
-                log.append(&format!("[jammer] Hashed: {}", rel));
-                Ok((hash, rel))
+        let handles: Vec<_> = files
+            .iter()
+            .map(|file| {
+                scope.spawn(|| -> Result<(String, String)> {
+                    let rel = file
+                        .strip_prefix(html_root)
+                        .unwrap_or(file)
+                        .to_string_lossy()
+                        .to_string();
+                    log.append(&format!("[jammer] Hashing: {}", rel));
+                    let hash = hash_file(file)?;
+                    log.append(&format!("[jammer] Hashed: {}", rel));
+                    Ok((hash, rel))
+                })
             })
-        }).collect();
+            .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
@@ -253,10 +277,7 @@ fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path, 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(
-            manifest_path,
-            std::fs::Permissions::from_mode(0o644),
-        );
+        let _ = std::fs::set_permissions(manifest_path, std::fs::Permissions::from_mode(0o644));
     }
 
     log.append(&format!(

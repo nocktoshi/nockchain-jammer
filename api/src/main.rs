@@ -45,7 +45,10 @@ impl JobLog {
     }
 
     fn take(&self) -> String {
-        self.0.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default()
+        self.0
+            .lock()
+            .map(|mut s| std::mem::take(&mut *s))
+            .unwrap_or_default()
     }
 }
 
@@ -87,10 +90,7 @@ fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode>
     Ok(())
 }
 
-async fn make_jam(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+async fn make_jam(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(code) = verify_api_key(&headers, &state.api_key) {
         return (
             code,
@@ -128,13 +128,19 @@ async fn make_jam(
         let elapsed = start.elapsed();
 
         match &result {
-            Ok(msg) => bg_log.append(&format!("[make-jam] completed in {:.1}s: {}", elapsed.as_secs_f64(), msg)),
-            Err(e) => bg_log.append(&format!("[make-jam] failed in {:.1}s: {:#}", elapsed.as_secs_f64(), e)),
+            Ok(msg) => bg_log.append(&format!(
+                "[make-jam] completed in {:.1}s: {}",
+                elapsed.as_secs_f64(),
+                msg
+            )),
+            Err(e) => bg_log.append(&format!(
+                "[make-jam] failed in {:.1}s: {:#}",
+                elapsed.as_secs_f64(),
+                e
+            )),
         };
 
-        let finished_at = chrono::Utc::now()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string();
+        let finished_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         let mut job = bg_state.job.lock().await;
         job.running = false;
@@ -159,11 +165,7 @@ fn count_jams(dir: PathBuf) -> usize {
         .map(|entries| {
             entries
                 .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.path()
-                        .extension()
-                        .is_some_and(|ext| ext == "jam")
-                })
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "jam"))
                 .count()
         })
         .unwrap_or(0)
@@ -185,7 +187,9 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
     let jams_dir = state.config.jams_dir.clone();
     let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || { let _ = tx.send(count_jams(jams_dir)); });
+    std::thread::spawn(move || {
+        let _ = tx.send(count_jams(jams_dir));
+    });
     let jam_count = rx.await.unwrap_or(0);
 
     Json(StatusResult {
@@ -214,20 +218,16 @@ async fn main() {
     let nockchain_dir = PathBuf::from(env_or("NOCKCHAIN_DIR", "/root/nockchain"));
 
     let config = jammer::JammerConfig {
-        manifest_path: PathBuf::from(env_or(
-            "MANIFEST",
-            &format!("{}/SHA256SUMS", jams_dir),
-        )),
+        manifest_path: PathBuf::from(env_or("MANIFEST", &format!("{}/SHA256SUMS", jams_dir))),
         jams_dir: PathBuf::from(&jams_dir),
         html_root: PathBuf::from(&html_root),
         nockchain_rpc: env_or("NOCKCHAIN_RPC", "localhost:5556"),
-        nockchain_bin: PathBuf::from(env_or(
-            "NOCKCHAIN_BIN",
-            "/root/.cargo/bin/nockchain",
-        )),
+        nockchain_bin: PathBuf::from(env_or("NOCKCHAIN_BIN", "/root/.cargo/bin/nockchain")),
         nockchain_dir: nockchain_dir.clone(),
         checkpoints_dir: nockchain_dir.join(".data.nockchain").join("checkpoints"),
-        nockchain_user: std::env::var("NOCKCHAIN_USER").ok().filter(|s| !s.is_empty()),
+        nockchain_user: std::env::var("NOCKCHAIN_USER")
+            .ok()
+            .filter(|s| !s.is_empty()),
         nockchain_service: env_or("NOCKCHAIN_SERVICE", "nockchain"),
     };
 
@@ -241,7 +241,10 @@ async fn main() {
         config.nockchain_user.as_deref().unwrap_or("(none)")
     );
     eprintln!("config: NOCKCHAIN_SERVICE={}", config.nockchain_service);
-    eprintln!("config: CHECKPOINTS_DIR={}", config.checkpoints_dir.display());
+    eprintln!(
+        "config: CHECKPOINTS_DIR={}",
+        config.checkpoints_dir.display()
+    );
 
     let state = Arc::new(AppState {
         api_key,
@@ -261,8 +264,7 @@ async fn main() {
         .allow_headers(Any)
         .allow_methods(Any);
 
-    let jams_service = ServeDir::new(&state.config.jams_dir)
-        .append_index_html_on_directories(true);
+    let jams_service = ServeDir::new(&state.config.jams_dir).append_index_html_on_directories(true);
 
     let app = Router::new()
         .route("/api/make-jam", post(make_jam))
