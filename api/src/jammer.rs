@@ -263,5 +263,5 @@ pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
         write_manifest_sync(&html_root, &jams_dir, &manifest_path)
     }).await.context("Manifest task failed")?;
     eprintln!("[jammer] Manifest task result: {:?}", result);
-    result.context("Manifest task failed")?
+    result.context("Manifest task failed")
 }
