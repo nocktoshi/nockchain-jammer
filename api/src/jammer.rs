@@ -73,7 +73,7 @@ pub async fn start_service(config: &JammerConfig) -> Result<()> {
     eprintln!("[jammer] Starting service: {}", config.nockchain_service);
 
     let status = Command::new("systemctl")
-        .args(["start", &config.nockchain_service])
+        .args(["start", "--no-block", &config.nockchain_service])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::inherit())
