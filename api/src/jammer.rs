@@ -136,18 +136,11 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
                 .spawn()
                 .context("Failed to spawn nockchain export")?;
 
-            let pgid = child.id();
-
-            let start = std::time::Instant::now();
-            while !target.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
-                std::thread::sleep(Duration::from_secs(1));
-            }
-
-            unsafe { libc::kill(-(pgid as i32), libc::SIGKILL); }
-            let _ = child.wait();
+            let status = child.wait().context("Failed to wait on export process")?;
+            eprintln!("[jammer] Export process exited: {}", status);
 
             if !target.exists() {
-                bail!("Jam file never appeared at {}", target.display());
+                bail!("Export exited ({}) but no jam file at {}", status, target.display());
             }
             eprintln!("[jammer] Export done: {}", target.display());
 

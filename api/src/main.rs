@@ -23,6 +23,7 @@ struct JobState {
     started_at: Option<Instant>,
     last_completed: Option<String>,
     last_success: Option<bool>,
+    last_output: Option<String>,
 }
 
 struct AppState {
@@ -47,6 +48,8 @@ struct StatusResult {
     last_completed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_success: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_output: Option<String>,
 }
 
 fn verify_api_key(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> {
@@ -90,46 +93,45 @@ async fn make_jam(
     job.started_at = Some(Instant::now());
     drop(job);
 
-    eprintln!("[make-jam] starting jam creation");
-    let start = Instant::now();
+    eprintln!("[make-jam] starting jam creation (background)");
 
-    let result = jammer::run_jam(&state.config).await;
-    let elapsed = start.elapsed();
+    // Spawn as a background task so it isn't cancelled if the HTTP client disconnects
+    let bg_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        let start = Instant::now();
+        let result = jammer::run_jam(&bg_state.config).await;
+        let elapsed = start.elapsed();
 
-    let (success, output) = match result {
-        Ok(msg) => {
-            eprintln!(
-                "[make-jam] completed successfully in {:.1}s",
-                elapsed.as_secs_f64()
-            );
-            (true, msg)
-        }
-        Err(e) => {
-            eprintln!(
-                "[make-jam] failed in {:.1}s: {:#}",
-                elapsed.as_secs_f64(),
-                e
-            );
-            (false, format!("{:#}", e))
-        }
-    };
+        let (success, output) = match result {
+            Ok(msg) => {
+                eprintln!("[make-jam] completed in {:.1}s", elapsed.as_secs_f64());
+                (true, msg)
+            }
+            Err(e) => {
+                eprintln!("[make-jam] failed in {:.1}s: {:#}", elapsed.as_secs_f64(), e);
+                (false, format!("{:#}", e))
+            }
+        };
 
-    let finished_at = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
-    let code = if success {
-        StatusCode::OK
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
+        let finished_at = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
 
-    let mut job = state.job.lock().await;
-    job.running = false;
-    job.started_at = None;
-    job.last_completed = Some(finished_at);
-    job.last_success = Some(success);
+        let mut job = bg_state.job.lock().await;
+        job.running = false;
+        job.started_at = None;
+        job.last_completed = Some(finished_at);
+        job.last_success = Some(success);
+        job.last_output = Some(output);
+    });
 
-    (code, Json(JobResult { success, output }))
+    (
+        StatusCode::ACCEPTED,
+        Json(JobResult {
+            success: true,
+            output: "job started".into(),
+        }),
+    )
 }
 
 fn count_jams(dir: PathBuf) -> usize {
@@ -152,6 +154,7 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let running_for_secs = job.started_at.map(|t| t.elapsed().as_secs());
     let last_completed = job.last_completed.clone();
     let last_success = job.last_success;
+    let last_output = job.last_output.clone();
     let running = job.running;
     drop(job);
 
@@ -166,6 +169,7 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         jam_count,
         last_completed,
         last_success,
+        last_output,
     })
 }
 
@@ -219,6 +223,7 @@ async fn main() {
             started_at: None,
             last_completed: None,
             last_success: None,
+            last_output: None,
         }),
     });
 
