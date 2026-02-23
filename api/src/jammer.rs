@@ -71,7 +71,11 @@ pub async fn stop_service(config: &JammerConfig) -> Result<()> {
         bail!("systemctl stop failed with exit code {:?}", status.code());
     }
 
-    eprintln!("[jammer] Stop initiated: {}", config.nockchain_service);
+    eprintln!("[jammer] Stop initiated, waiting 3 minutes for service to stop: {}", config.nockchain_service);
+
+    // Give the service time to actually stop before proceeding
+    tokio::time::sleep(Duration::from_secs(3 * 60)).await;
+
     Ok(())
 }
 
