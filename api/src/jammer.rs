@@ -71,6 +71,10 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
     let tip = get_tip_block(config)
         .await
         .context("Failed to get tip block")?;
+    if tip == 0 {
+        bail!("Tip block is 0");
+    }
+
     log.append(&format!("[jammer] Tip block: {}", tip));
 
     let jam_path = config.jams_dir.join(format!("{}.jam", tip));
