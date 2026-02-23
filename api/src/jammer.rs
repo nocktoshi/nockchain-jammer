@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command as StdCommand, Stdio};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -55,78 +55,56 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
     }
 }
 
-pub async fn stop_service(config: &JammerConfig) -> Result<()> {
-    eprintln!("[jammer] Stopping service: {}", config.nockchain_service);
-
-    let status = tokio::process::Command::new("systemctl")
-        .args(["stop", "--no-block", &config.nockchain_service])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
+fn run_cmd(program: &str, args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+    Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
         .status()
-        .await
-        .context("Failed to run systemctl stop")?;
-
-    if !status.success() {
-        bail!("systemctl stop failed with exit code {:?}", status.code());
-    }
-
-    eprintln!("[jammer] Stop initiated, waiting 3 minutes for service to stop: {}", config.nockchain_service);
-
-    // Give the service time to actually stop before proceeding
-    tokio::time::sleep(Duration::from_secs(3 * 60)).await;
-
-    Ok(())
 }
 
-pub async fn start_service(config: &JammerConfig) -> Result<()> {
-    eprintln!("[jammer] Starting service: {}", config.nockchain_service);
-
-    let status = tokio::process::Command::new("systemctl")
-        .args(["start", "--no-block", &config.nockchain_service])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .status()
+/// Runs the entire stop -> export -> start -> manifest flow on a blocking thread.
+/// All subprocess management uses std::process to avoid tokio SIGCHLD issues.
+pub async fn run_jam(config: &JammerConfig) -> Result<String> {
+    let tip = get_tip_block(config)
         .await
-        .context("Failed to run systemctl start")?;
+        .context("Failed to get tip block")?;
+    eprintln!("[jammer] Tip block: {}", tip);
 
-    if !status.success() {
-        bail!("systemctl start failed with exit code {:?}", status.code());
-    }
-
-    eprintln!("[jammer] Service started: {}", config.nockchain_service);
-    Ok(())
-}
-
-pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<PathBuf> {
-    let jam_path = config.jams_dir.join(format!("{}.jam", block_number));
+    let jam_path = config.jams_dir.join(format!("{}.jam", tip));
 
     if jam_path.exists() {
-        eprintln!(
-            "[jammer] Jam already exists: {} (skipping export)",
-            jam_path.display()
-        );
-        return Ok(jam_path);
+        eprintln!("[jammer] Jam already exists: {} (skipping)", jam_path.display());
+        write_manifest(config).await?;
+        return Ok(format!("Jam for block {} already exists", tip));
     }
 
-    std::fs::create_dir_all(&config.jams_dir)
-        .context("Failed to create jams directory")?;
-
-    eprintln!(
-        "[jammer] Exporting state jam to: {} (from {})",
-        jam_path.display(),
-        config.nockchain_dir.display()
-    );
-
+    let service = config.nockchain_service.clone();
     let user = config.nockchain_user.clone();
     let bin = config.nockchain_bin.clone();
     let dir = config.nockchain_dir.clone();
     let target = jam_path.clone();
+    let jams_dir = config.jams_dir.clone();
+    let html_root = config.html_root.clone();
+    let manifest_path = config.manifest_path.clone();
 
-    let mut child = tokio::task::spawn_blocking(move || -> Result<Child> {
-        let mut cmd = if let Some(user) = &user {
-            let mut c = StdCommand::new("sudo");
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        // Ensure jams directory exists
+        std::fs::create_dir_all(&jams_dir)
+            .context("Failed to create jams directory")?;
+
+        // 1. Stop nockchain service (blocking - waits for it to actually stop)
+        eprintln!("[jammer] Stopping service: {}", service);
+        match run_cmd("systemctl", &["stop", &service]) {
+            Ok(s) => eprintln!("[jammer] Service stopped (exit {})", s),
+            Err(e) => eprintln!("[jammer] systemctl stop error: {}", e),
+        }
+
+        // 2. Run nockchain export
+        eprintln!("[jammer] Exporting to: {}", target.display());
+        let mut cmd = if let Some(ref user) = user {
+            let mut c = Command::new("sudo");
             c.arg("-u").arg(user)
                 .arg(bin.as_os_str())
                 .arg("--export-state-jam")
@@ -134,48 +112,51 @@ pub async fn export_jam(config: &JammerConfig, block_number: u64) -> Result<Path
                 .current_dir(&dir);
             c
         } else {
-            let mut c = StdCommand::new(&bin);
+            let mut c = Command::new(&bin);
             c.arg("--export-state-jam")
                 .arg(&target)
                 .current_dir(&dir);
             c
         };
 
-        let child = cmd.stdin(Stdio::null())
+        let mut child = cmd
+            .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .context("Failed to spawn nockchain export")?;
-        Ok(child)
-    })
-    .await
-    .context("spawn export task panicked")??;
 
-    // Wait for jam file to appear
-    let start = tokio::time::Instant::now();
-    loop {
-        if jam_path.exists() {
-            eprintln!("[jammer] Jam file detected on disk after {:.1}s", start.elapsed().as_secs_f64());
-            break;
+        // Poll for file instead of waiting for process exit (nockchain hangs after export)
+        let start = std::time::Instant::now();
+        while !target.exists() && start.elapsed() < Duration::from_secs(15 * 60) {
+            std::thread::sleep(Duration::from_secs(1));
         }
-        if start.elapsed() > Duration::from_secs(15 * 60) {
-            // Clean up child before bailing
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("Jam file never appeared at {}", jam_path.display());
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
 
-    // Kill and reap the child process on a blocking thread
-    // (nockchain doesn't exit properly, and Child::wait blocks)
-    tokio::task::spawn_blocking(move || {
         let _ = child.kill();
         let _ = child.wait();
-    });
 
-    eprintln!("[jammer] Exported: {}", jam_path.display());
-    Ok(jam_path)
+        if !target.exists() {
+            bail!("Jam file never appeared at {}", target.display());
+        }
+        eprintln!("[jammer] Export done: {}", target.display());
+
+        // 3. Restart service (non-blocking)
+        eprintln!("[jammer] Starting service: {}", service);
+        match run_cmd("systemctl", &["start", "--no-block", &service]) {
+            Ok(s) => eprintln!("[jammer] Service start issued (exit {})", s),
+            Err(e) => eprintln!("[jammer] systemctl start error: {}", e),
+        }
+
+        // 4. Write manifest
+        write_manifest_sync(&html_root, &jams_dir, &manifest_path)?;
+
+        Ok(())
+    })
+    .await
+    .context("jam task panicked")?
+    .context("jam task failed")?;
+
+    Ok(format!("Exported jam for block {}", tip))
 }
 
 fn hash_file(path: &Path) -> Result<String> {
@@ -217,70 +198,52 @@ fn collect_hashable_files(html_root: &Path, jams_dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path) -> Result<()> {
+    let files = collect_hashable_files(html_root, jams_dir);
+
+    if files.is_empty() {
+        bail!("No files found to hash");
+    }
+
+    let mut content = String::new();
+    for file in &files {
+        let rel = file
+            .strip_prefix(html_root)
+            .unwrap_or(file)
+            .to_string_lossy();
+        let hash = hash_file(file)?;
+        content.push_str(&format!("{}  {}\n", hash, rel));
+    }
+
+    let tmp = manifest_path.with_extension("tmp");
+    std::fs::write(&tmp, &content).context("Failed to write temp manifest")?;
+    std::fs::rename(&tmp, manifest_path).context("Failed to rename manifest")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            manifest_path,
+            std::fs::Permissions::from_mode(0o644),
+        );
+    }
+
+    eprintln!(
+        "[jammer] Manifest written: {} ({} files)",
+        manifest_path.display(),
+        files.len()
+    );
+    Ok(())
+}
+
 pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
     let html_root = config.html_root.clone();
     let jams_dir = config.jams_dir.clone();
     let manifest_path = config.manifest_path.clone();
 
     tokio::task::spawn_blocking(move || {
-        let files = collect_hashable_files(&html_root, &jams_dir);
-
-        if files.is_empty() {
-            bail!("No files found to hash");
-        }
-
-        let mut content = String::new();
-        for file in &files {
-            let rel = file
-                .strip_prefix(&html_root)
-                .unwrap_or(file)
-                .to_string_lossy();
-            let hash = hash_file(file)?;
-            content.push_str(&format!("{}  {}\n", hash, rel));
-        }
-
-        let tmp = manifest_path.with_extension("tmp");
-        std::fs::write(&tmp, &content).context("Failed to write temp manifest")?;
-        std::fs::rename(&tmp, &manifest_path).context("Failed to rename manifest")?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &manifest_path,
-                std::fs::Permissions::from_mode(0o644),
-            );
-        }
-
-        eprintln!(
-            "[jammer] Manifest written: {} ({} files)",
-            manifest_path.display(),
-            files.len()
-        );
-        Ok(())
+        write_manifest_sync(&html_root, &jams_dir, &manifest_path)
     })
     .await
     .context("Manifest task panicked")?
-}
-
-/// Full jam creation flow: get tip -> stop service -> export -> restart -> write manifest.
-pub async fn run_jam(config: &JammerConfig) -> Result<String> {
-    let tip = get_tip_block(config)
-        .await
-        .context("Failed to get tip block")?;
-    eprintln!("[jammer] Tip block: {}", tip);
-
-    // Start stopping service (fire and forget)
-    stop_service(config).await?;
-
-    // Immediately start export - nockchain export can run while service is stopping
-    export_jam(config, tip).await.context("Failed to export jam")?;
-
-    if let Err(e) = start_service(config).await {
-        eprintln!("[jammer] WARNING: Failed to restart service: {}", e);
-    }
-
-    write_manifest(config).await.context("Failed to write manifest")?;
-
-    Ok(format!("Exported jam for block {}", tip))
 }
