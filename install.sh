@@ -101,10 +101,10 @@ fi
 # ── Build ─────────────────────────────────────────────────────────────
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
-sudo -u jammer \
+(cd "$INSTALL_DIR" && sudo -u jammer \
     RUSTUP_HOME="$JAMMER_HOME/.rustup" \
     CARGO_HOME="$JAMMER_HOME/.cargo" \
-    "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml"
+    "$JAMMER_CARGO" build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml")
 
 # ── Install ───────────────────────────────────────────────────────────
 log_info "Installing files..."
