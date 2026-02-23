@@ -24,6 +24,29 @@ struct JobState {
     last_completed: Option<String>,
     last_success: Option<bool>,
     last_output: Option<String>,
+    live_log: Option<JobLog>,
+}
+
+/// Thread-safe log buffer that jammer writes to during a job.
+#[derive(Clone)]
+pub struct JobLog(Arc<std::sync::Mutex<String>>);
+
+impl JobLog {
+    fn new() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(String::new())))
+    }
+
+    pub fn append(&self, msg: &str) {
+        eprintln!("{}", msg);
+        if let Ok(mut buf) = self.0.lock() {
+            buf.push_str(msg);
+            buf.push('\n');
+        }
+    }
+
+    fn take(&self) -> String {
+        self.0.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default()
+    }
 }
 
 struct AppState {
@@ -89,28 +112,24 @@ async fn make_jam(
             }),
         );
     }
+    let log = JobLog::new();
     job.running = true;
     job.started_at = Some(Instant::now());
+    job.live_log = Some(log.clone());
     drop(job);
 
-    eprintln!("[make-jam] starting jam creation (background)");
+    log.append("[make-jam] starting jam creation");
 
-    // Spawn as a background task so it isn't cancelled if the HTTP client disconnects
     let bg_state = Arc::clone(&state);
+    let bg_log = log.clone();
     tokio::spawn(async move {
         let start = Instant::now();
-        let result = jammer::run_jam(&bg_state.config).await;
+        let result = jammer::run_jam(&bg_state.config, &bg_log).await;
         let elapsed = start.elapsed();
 
-        let (success, output) = match result {
-            Ok(msg) => {
-                eprintln!("[make-jam] completed in {:.1}s", elapsed.as_secs_f64());
-                (true, msg)
-            }
-            Err(e) => {
-                eprintln!("[make-jam] failed in {:.1}s: {:#}", elapsed.as_secs_f64(), e);
-                (false, format!("{:#}", e))
-            }
+        match &result {
+            Ok(msg) => bg_log.append(&format!("[make-jam] completed in {:.1}s: {}", elapsed.as_secs_f64(), msg)),
+            Err(e) => bg_log.append(&format!("[make-jam] failed in {:.1}s: {:#}", elapsed.as_secs_f64(), e)),
         };
 
         let finished_at = chrono::Utc::now()
@@ -121,8 +140,9 @@ async fn make_jam(
         job.running = false;
         job.started_at = None;
         job.last_completed = Some(finished_at);
-        job.last_success = Some(success);
-        job.last_output = Some(output);
+        job.last_success = Some(result.is_ok());
+        job.last_output = Some(bg_log.take());
+        job.live_log = None;
     });
 
     (
@@ -154,7 +174,12 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let running_for_secs = job.started_at.map(|t| t.elapsed().as_secs());
     let last_completed = job.last_completed.clone();
     let last_success = job.last_success;
-    let last_output = job.last_output.clone();
+    let last_output = if let Some(ref live) = job.live_log {
+        let buf = live.0.lock().unwrap_or_else(|e| e.into_inner());
+        Some(buf.clone())
+    } else {
+        job.last_output.clone()
+    };
     let running = job.running;
     drop(job);
 
@@ -224,6 +249,7 @@ async fn main() {
             last_completed: None,
             last_success: None,
             last_output: None,
+            live_log: None,
         }),
     });
 

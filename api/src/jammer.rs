@@ -10,6 +10,7 @@ use crate::proto::{
     get_blocks_response, nockchain_block_service_client::NockchainBlockServiceClient,
     GetBlocksRequest, PageRequest,
 };
+use crate::JobLog;
 
 pub struct JammerConfig {
     pub html_root: PathBuf,
@@ -66,17 +67,17 @@ fn run_cmd(program: &str, args: &[&str]) -> std::io::Result<std::process::ExitSt
 
 /// Runs the entire stop -> export -> start -> manifest flow on a blocking thread.
 /// All subprocess management uses std::process to avoid tokio SIGCHLD issues.
-pub async fn run_jam(config: &JammerConfig) -> Result<String> {
+pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
     let tip = get_tip_block(config)
         .await
         .context("Failed to get tip block")?;
-    eprintln!("[jammer] Tip block: {}", tip);
+    log.append(&format!("[jammer] Tip block: {}", tip));
 
     let jam_path = config.jams_dir.join(format!("{}.jam", tip));
 
     if jam_path.exists() {
-        eprintln!("[jammer] Jam already exists: {} (skipping)", jam_path.display());
-        write_manifest(config).await?;
+        log.append(&format!("[jammer] Jam already exists: {} (skipping)", jam_path.display()));
+        write_manifest(config, log).await?;
         return Ok(format!("Jam for block {} already exists", tip));
     }
 
@@ -88,6 +89,7 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
     let jams_dir = config.jams_dir.clone();
     let html_root = config.html_root.clone();
     let manifest_path = config.manifest_path.clone();
+    let log = log.clone();
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
 
@@ -96,15 +98,13 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
             std::fs::create_dir_all(&jams_dir)
                 .context("Failed to create jams directory")?;
 
-            // 1. Stop nockchain service
-            eprintln!("[jammer] Stopping service: {}", service);
+            log.append(&format!("[jammer] Stopping service: {}", service));
             match run_cmd("systemctl", &["stop", &service]) {
-                Ok(s) => eprintln!("[jammer] Service stopped (exit {})", s),
-                Err(e) => eprintln!("[jammer] systemctl stop error: {}", e),
+                Ok(s) => log.append(&format!("[jammer] Service stopped (exit {})", s)),
+                Err(e) => log.append(&format!("[jammer] systemctl stop error: {}", e)),
             }
 
-            // 2. Run nockchain export
-            eprintln!("[jammer] Exporting to: {}", target.display());
+            log.append(&format!("[jammer] Exporting to: {}", target.display()));
             let mut cmd = if let Some(ref user) = user {
                 let mut c = Command::new("sudo");
                 c.arg("-u").arg(user)
@@ -137,27 +137,24 @@ pub async fn run_jam(config: &JammerConfig) -> Result<String> {
                 .context("Failed to spawn nockchain export")?;
 
             let status = child.wait().context("Failed to wait on export process")?;
-            eprintln!("[jammer] Export process exited: {}", status);
+            log.append(&format!("[jammer] Export process exited: {}", status));
 
             if !target.exists() {
                 bail!("Export exited ({}) but no jam file at {}", status, target.display());
             }
-            eprintln!("[jammer] Export done: {}", target.display());
+            log.append(&format!("[jammer] Export done: {}", target.display()));
 
-            // 3. Restart service
-            eprintln!("[jammer] Starting service: {}", service);
+            log.append(&format!("[jammer] Starting service: {}", service));
             match run_cmd("systemctl", &["start", "--no-block", &service]) {
-                Ok(s) => eprintln!("[jammer] Service start issued (exit {})", s),
-                Err(e) => eprintln!("[jammer] systemctl start error: {}", e),
+                Ok(s) => log.append(&format!("[jammer] Service start issued (exit {})", s)),
+                Err(e) => log.append(&format!("[jammer] systemctl start error: {}", e)),
             }
 
-            // 4. Write manifest
-            write_manifest_sync(&html_root, &jams_dir, &manifest_path)?;
+            write_manifest_sync(&html_root, &jams_dir, &manifest_path, &log)?;
 
             Ok(())
         })();
 
-        eprintln!("[jammer] Thread done, sending result");
         let _ = tx.send(result);
     });
 
@@ -208,8 +205,8 @@ fn collect_hashable_files(html_root: &Path, jams_dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path) -> Result<()> {
-    eprintln!("[jammer] Writing manifest: {}", manifest_path.display());
+fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path, log: &JobLog) -> Result<()> {
+    log.append(&format!("[jammer] Writing manifest: {}", manifest_path.display()));
     let files = collect_hashable_files(html_root, jams_dir);
 
     if files.is_empty() {
@@ -223,6 +220,7 @@ fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path) 
             .unwrap_or(file)
             .to_string_lossy();
         let hash = hash_file(file)?;
+        log.append(&format!("[jammer] Hashed: {}", rel));
         content.push_str(&format!("{}  {}\n", hash, rel));
     }
 
@@ -239,22 +237,23 @@ fn write_manifest_sync(html_root: &Path, jams_dir: &Path, manifest_path: &Path) 
         );
     }
 
-    eprintln!(
+    log.append(&format!(
         "[jammer] Manifest written: {} ({} files)",
         manifest_path.display(),
         files.len()
-    );
+    ));
     Ok(())
 }
 
-pub async fn write_manifest(config: &JammerConfig) -> Result<()> {
+pub async fn write_manifest(config: &JammerConfig, log: &JobLog) -> Result<()> {
     let html_root = config.html_root.clone();
     let jams_dir = config.jams_dir.clone();
     let manifest_path = config.manifest_path.clone();
+    let log = log.clone();
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
     std::thread::spawn(move || {
-        let result = write_manifest_sync(&html_root, &jams_dir, &manifest_path);
+        let result = write_manifest_sync(&html_root, &jams_dir, &manifest_path, &log);
         let _ = tx.send(result);
     });
     rx.await
