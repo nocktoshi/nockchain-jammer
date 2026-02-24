@@ -124,14 +124,14 @@
           const latestDriveId = driveFileIds[latestName];
           if (latestDriveId) {
             latestLink.href = driveViewUrl(latestDriveId);
-            latestLink.innerHTML = "<img src='" + DRIVE_ICON_URL + "' alt='' class='drive-icon'>Download latest from Google Drive";
+            latestLink.innerHTML = "<img src='" + DRIVE_ICON_URL + "' alt='Drive' class='drive-icon'>Download latest " + latestName + ".jam";
             latestLink.removeAttribute("target");
             latestLink.removeAttribute("rel");
             latestLink.removeAttribute("download");
           } else {
             const latestHref = latestPath.startsWith("jams/") ? "/" + latestPath : "./" + latestName;
             latestLink.href = latestHref;
-            latestLink.textContent = "Download latest .jam";
+            latestLink.textContent = "Download latest " + latestName + ".jam";
             latestLink.download = latestName;
             latestLink.removeAttribute("target");
             latestLink.removeAttribute("rel");
@@ -165,8 +165,9 @@
       <div class="output-box" id="job-output"></div>
     </div>
     <p class="footer">
-      Questions? Contact <a target="_blank" href="https://t.me/nocktoshi">@nocktoshi</a> on telegram. <br/><br/>
-      <a target="_blank" href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam Vector by
+      Questions? Contact <a target="_blank" href="https://t.me/nocktoshi">@nocktoshi</a> on telegram. <br /><br />
+      <a target="_blank" href="https://www.vecteezy.com/vector-art/49568465-strawberry-jam-illustration">Strawberry Jam
+        Vector by
         Giuseppe Ramos</a>
     </p>
     <script>
