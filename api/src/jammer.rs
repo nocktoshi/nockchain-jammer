@@ -3,11 +3,9 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use nockapp::export::ExportedState;
-use nockapp::kernel::form::{LoadState, STATE_AXIS};
+use nockapp::kernel::form::LoadState;
 use nockapp::noun::slab::NockJammer;
-use nockapp::noun::slab::NounSlab;
 use nockapp::save::{JammedCheckpointV2, SaveableCheckpoint};
-use nockvm::noun::Slots;
 use sha2::{Digest, Sha256};
 use tonic::transport::Channel;
 
@@ -65,6 +63,11 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
 /// Exports kernel state from the newest of 0.chkjam/1.chkjam (by mtime) to a .jam file (ExportedState format).
 /// V2 checkpoints only. Does not start or stop the node.
 /// Copies checkpoint files to a temp dir first so the running node can overwrite them safely.
+///
+/// **RAM usage:** Peak memory is roughly: full chkjam file + decoded checkpoint (state + cold slabs) +
+/// jammed kernel state bytes + bincode-encoded output. No extra copy of the kernel state tree (we move
+/// `saveable.state` into `LoadState`). Full streaming would require the nockapp/nockchain dependency to
+/// expose encode-to-writer and/or streaming jam; currently the final buffer is materialized before write.
 pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) -> Result<()> {
     let path_0 = checkpoints_dir.join("0.chkjam");
     let path_1 = checkpoints_dir.join("1.chkjam");
@@ -88,32 +91,26 @@ pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) 
     std::fs::copy(&source_path, &temp_path)
         .with_context(|| format!("Failed to copy {}", source_path.display()))?;
 
-    let bytes = std::fs::read(&temp_path)
-        .with_context(|| format!("Failed to read copied checkpoint {}", temp_path.display()))?;
-
-    let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)
-        .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
+    let saveable = {
+        let bytes = std::fs::read(&temp_path)
+            .with_context(|| format!("Failed to read copied checkpoint {}", temp_path.display()))?;
+        let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)
+            .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
+        SaveableCheckpoint::from_jammed_checkpoint_v2::<NockJammer>(jammed, None)
+            .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?
+    };
 
     log.append(&format!(
         "[jammer] Using checkpoint event_num {}",
-        jammed.event_num
+        saveable.event_num
     ));
 
-    let saveable = SaveableCheckpoint::from_jammed_checkpoint_v2::<NockJammer>(jammed, None)
-        .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
-
-    let arvo_root = unsafe { saveable.state.root() };
-    let kernel_noun = arvo_root
-        .slot(STATE_AXIS)
-        .context("Failed to read kernel state (axis 6) from arvo")?;
-
-    let mut kernel_slab = NounSlab::new();
-    kernel_slab.copy_into(kernel_noun);
-
+    // saveable.state is already the full kernel state slab (from checkpoint state_jam).
+    // We move it (no clone) to avoid a second full copy of the noun tree in RAM.
     let load_state = LoadState {
         ker_hash: saveable.ker_hash,
         event_num: saveable.event_num,
-        kernel_state: kernel_slab,
+        kernel_state: saveable.state,
     };
 
     let bytes = ExportedState::from_loadstate(load_state)
