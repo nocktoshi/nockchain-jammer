@@ -95,4 +95,30 @@ cargo build --release
 # Binary at api/target/release/nockchain-jammer-api
 ```
 
+## Syncing to Google Drive (optional)
+
+The script `sync_to_gdrive.sh` uses [rclone](https://rclone.org/) to sync the **newest two** `.jam` files from your jams directory to a Google Drive folder. It keeps only those two in the destination (older jams in Drive are removed).
+
+**Prerequisites:** Install rclone and configure a Google Drive remote (e.g. `rclone config` → name it `gdrive`).
+
+**Configure** the script (edit the CONFIG block at the top):
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `SRC_DIR` | `/usr/share/nginx/html/jams` | Local jams directory (should match `JAMS_DIR` or your web root for jams) |
+| `REMOTE` | `gdrive:` | rclone remote name |
+| `DEST_FOLDER_ID` | `1P9-XYfFE6gJi6rosFLd9sjGpi3AWkpMs` | Google Drive folder ID (from the folder URL: `drive.google.com/.../folders/<ID>`) |
+| `LOG_FILE` | `/var/log/rclone-jams-sync.log` | Where to append logs |
+
+**Run manually:**
+```bash
+./sync_to_gdrive.sh
+```
+
+**Run periodically** (e.g. after each jam or hourly): add a cron job or call the script from your jam-creation workflow. Example cron (daily at 3am):
+```bash
+0 3 * * * /opt/nockchain-jammer/sync_to_gdrive.sh
+```
+
+
 
