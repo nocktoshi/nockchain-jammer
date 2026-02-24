@@ -76,5 +76,8 @@ rclone sync "$SRC_DIR" "$REMOTE" \
   --log-file "$LOG_FILE" --log-level INFO \
   --progress
 
+# Write JSON manifest of files on Drive (rclone lsjson output) for the website
+rclone lsjson "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" 2>/dev/null > "$SRC_DIR/drive_files.json" || true
+
 rm -f "$TMP_LIST"
 echo "$(date -Is) Sync complete." | tee -a "$LOG_FILE"

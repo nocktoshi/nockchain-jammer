@@ -15,7 +15,7 @@
     <h1><img src="jam-icon.png" alt="jam-icon" class="jam-icon">State Jams</h1>
     <p class="meta">Download state jam binaries and verify each file with SHA-256.</p>
     <p>
-      <a class="button" id="latest-link" href="#" download hidden>Download latest .jam</a>
+      <a class="button" id="latest-link" href="#" target="_blank" rel="noopener" hidden>Download latest .jam</a>
     </p>
     <p class="meta">
       Checksum source:
@@ -41,6 +41,8 @@
     <p id="status" class="status"></p>
 
     <script>
+      const DRIVE_ICON_URL = "https://ssl.gstatic.com/images/branding/product/2x/drive_2020q4_48dp.png";
+
       async function loadHashes() {
         const tableBody = document.getElementById("hash-table-body");
         const status = document.getElementById("status");
@@ -82,22 +84,58 @@
             return;
           }
 
+          let driveFileIds = {};
+          try {
+            const driveRes = await fetch("/jams/drive_files.json", { cache: "no-store" });
+            if (driveRes.ok) {
+              const data = await driveRes.json();
+              if (Array.isArray(data)) {
+                data.forEach(item => {
+                  if (!item.IsDir && item.Path && item.ID) {
+                    driveFileIds[item.Path] = item.ID;
+                  }
+                });
+              }
+            }
+          } catch (_) { }
+
+          function driveViewUrl(id) {
+            return "https://drive.google.com/file/d/" + id + "/view?usp=drive_link";
+          }
+
           tableBody.innerHTML = rows.map(({ hash, path }, i) => {
             const fileName = path.split("/").pop();
-            const link = path.startsWith("jams/") ? "/" + path : "./" + fileName;
+            const localHref = path.startsWith("jams/") ? "/" + path : "./" + fileName;
             const tag = i === 0 ? " <span class='tag-newest'>newest</span>" : "";
+            const driveId = driveFileIds[fileName];
+            const cellContent = driveId
+              ? "<a href='" + driveViewUrl(driveId) + "'><img src='" + DRIVE_ICON_URL + "' alt='Drive' class='drive-icon'>" + fileName + "</a>"
+              : "<a href='" + localHref + "' download>" + fileName + "</a>";
             return (
               "<tr>" +
-              "<td><a href='" + link + "' download>" + fileName + "</a>" + tag + "</td>" +
+              "<td>" + cellContent + tag + "</td>" +
               "<td><code>" + hash + "</code></td>" +
               "</tr>"
             );
           }).join("");
 
-          const latestName = rows[0].path.split("/").pop();
-          const latestHref = rows[0].path.startsWith("jams/") ? "/" + rows[0].path : "./" + latestName;
-          latestLink.href = latestHref;
-          latestLink.download = latestName;
+          const latestPath = rows[0].path;
+          const latestName = latestPath.split("/").pop();
+          const latestDriveId = driveFileIds[latestName];
+          if (latestDriveId) {
+            latestLink.href = driveViewUrl(latestDriveId);
+            latestLink.innerHTML = "<img src='" + DRIVE_ICON_URL + "' alt='' class='drive-icon'>Download latest from Google Drive";
+            latestLink.removeAttribute("target");
+            latestLink.removeAttribute("rel");
+            latestLink.removeAttribute("download");
+          } else {
+            const latestHref = latestPath.startsWith("jams/") ? "/" + latestPath : "./" + latestName;
+            latestLink.href = latestHref;
+            latestLink.textContent = "Download latest .jam";
+            latestLink.download = latestName;
+            latestLink.removeAttribute("target");
+            latestLink.removeAttribute("rel");
+          }
           latestLink.hidden = false;
 
           status.textContent = "Loaded " + rows.length + " jam file checksum(s).";
