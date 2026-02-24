@@ -45,27 +45,11 @@ printf '  - %s\n' "${NEWEST_JAMS[@]}" | tee -a "$LOG_FILE"
 
 popd >/dev/null
 
-# === DELETE FROM DRIVE ANY FILE NOT IN TMP_LIST (do this before sync) ===
-# List all files in the Drive folder (newline-separated; -0 can be unreliable with some rclone builds)
-REMOTE_FILES=$(rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only 2>> "$LOG_FILE" || true)
-while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
-  f="${f#./}"
-  f="${f#/}"
-  if ! grep -Fxq "$f" "$TMP_LIST" 2>/dev/null; then
-    echo "$(date -Is) Deleting from Drive (not in keep list): $f" | tee -a "$LOG_FILE"
-    if rclone deletefile "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
-        --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE"; then
-      echo "$(date -Is) Deleted from Drive: $f" | tee -a "$LOG_FILE"
-    else
-      echo "$(date -Is) Failed to delete from Drive: $f" | tee -a "$LOG_FILE"
-    fi
-  fi
-done <<< "$REMOTE_FILES"
-
 # === SYNC THE 2 NEWEST FILES TO DRIVE ===
+# sync makes destination match the filtered source, so extra .jam files on Drive are removed (with --drive-use-trash=false)
 rclone sync "$SRC_DIR" "$REMOTE" \
   --drive-root-folder-id "$DEST_FOLDER_ID" \
+  --drive-use-trash=false \
   --files-from "$TMP_LIST" \
   --transfers "$TRANSFERS" \
   --checkers "$CHECKERS" \
