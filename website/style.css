@@ -150,8 +150,9 @@ tbody td {
   padding: 0.6rem 0.8rem;
   vertical-align: top;
   color: rgba(255,255,255,0.8);
-  text-align: end;
+  text-align: start;
 }
+tbody td:first-child { text-align: end; }
 
 tbody tr:last-child td { border-bottom: 0; }
 
