@@ -96,6 +96,7 @@ fi
 # ── Build ─────────────────────────────────────────────────────────────
 log_info "Building API binary..."
 chown -R jammer:jammer "$INSTALL_DIR"
+[[ -f "$INSTALL_DIR/sync_to_gdrive.sh" ]] && chmod +x "$INSTALL_DIR/sync_to_gdrive.sh"
 (cd "$INSTALL_DIR" && sudo -u jammer \
     RUSTUP_HOME="$JAMMER_HOME/.rustup" \
     CARGO_HOME="$JAMMER_HOME/.cargo" \
