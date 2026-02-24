@@ -58,7 +58,9 @@ while IFS= read -r f; do
       --drive-use-trash=false \
       --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE" || true
 
-    sleep 10s
+    echo "$(date -Is) Waiting 60 seconds before checking if deletion was successful..." | tee -a "$LOG_FILE"
+    sleep 60s
+    echo "$(date -Is) Checking if deletion was successful: $f" | tee -a "$LOG_FILE"
     if rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only 2>> "$LOG_FILE" | grep -Fxq "$f" 2>/dev/null; then
       echo "$(date -Is) Failed to delete from Drive: $f" | tee -a "$LOG_FILE"
     fi
@@ -66,15 +68,41 @@ while IFS= read -r f; do
 done <<< "$REMOTE_FILES"
 
 # === SYNC THE 2 NEWEST FILES TO DRIVE ===
-rclone sync "$SRC_DIR" "$REMOTE" \
-  --drive-root-folder-id "$DEST_FOLDER_ID" \
-  --drive-use-trash=false \
-  --files-from "$TMP_LIST" \
-  --transfers "$TRANSFERS" \
-  --checkers "$CHECKERS" \
-  --drive-chunk-size "$CHUNK_SIZE" \
-  --log-file "$LOG_FILE" --log-level INFO \
-  --progress
+# On failure (e.g. out of quota), delete all .jam on Drive, wait 5 min, retry once.
+sync_succeeded=false
+for attempt in 1 2; do
+  if rclone sync "$SRC_DIR" "$REMOTE" \
+    --drive-root-folder-id "$DEST_FOLDER_ID" \
+    --drive-use-trash=false \
+    --files-from "$TMP_LIST" \
+    --transfers "$TRANSFERS" \
+    --checkers "$CHECKERS" \
+    --drive-chunk-size "$CHUNK_SIZE" \
+    --log-file "$LOG_FILE" --log-level INFO \
+    --progress 2>> "$LOG_FILE"; then
+    sync_succeeded=true
+    break
+  fi
+  if [[ $attempt -eq 1 ]]; then
+    echo "$(date -Is) Sync failed (possibly out of quota). Deleting all .jam from Drive..." | tee -a "$LOG_FILE"
+    REMOTE_JAMS=$(rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only 2>> "$LOG_FILE" | grep '\.jam$' || true)
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      f="${f#./}"
+      f="${f#/}"
+      echo "$(date -Is) Deleting from Drive: $f" | tee -a "$LOG_FILE"
+      rclone deletefile "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
+        --drive-use-trash=false \
+        --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE" || true
+    done <<< "$REMOTE_JAMS"
+    echo "$(date -Is) Waiting 5 minutes before retry..." | tee -a "$LOG_FILE"
+    sleep 300
+  else
+    echo "$(date -Is) Sync failed again." | tee -a "$LOG_FILE"
+    rm -f "$TMP_LIST"
+    exit 1
+  fi
+done
 
 # Write JSON manifest of files on Drive (rclone lsjson output) for the website
 rclone lsjson "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" 2>/dev/null > "$SRC_DIR/drive_files.json" || true
