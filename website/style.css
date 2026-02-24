@@ -177,7 +177,7 @@ code {
 
 .tag-newest {
   display: inline-block;
-  margin-right: 0.5em;
+  margin-right: 0.35em;
   padding: 0.1em 0.5em;
   font-size: 0.65rem;
   font-weight: 700;
@@ -198,7 +198,7 @@ code {
   width: 20px;
   height: 20px;
   vertical-align: middle;
-  margin-right: 0.35em;
+  margin: 0 0.35em;
 }
 .status {
   margin-top: 0.75rem;
