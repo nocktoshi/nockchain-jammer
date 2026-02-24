@@ -43,11 +43,21 @@ printf '%s\n' "${NEWEST_JAMS[@]}" > "$TMP_LIST"
 echo "$(date -Is) Will keep these $(wc -l < "$TMP_LIST") newest .jam file(s):" | tee -a "$LOG_FILE"
 printf '  - %s\n' "${NEWEST_JAMS[@]}" | tee -a "$LOG_FILE"
 
-# === SYNC ONLY THE LISTED FILES ===
-# rclone sync + --files-from means:
-#   • upload the 2 listed files if new/changed
-#   • delete any other *.jam in the destination (not present in the list)
-#   • ignore non-.jam files in the destination
+popd >/dev/null
+
+# === DELETE FROM DRIVE ANY FILE NOT IN TMP_LIST (do this before sync) ===
+while IFS= read -r -d '' f; do
+  f="${f#./}"
+  [[ -z "$f" ]] && continue
+  if ! grep -Fxq "$f" "$TMP_LIST" 2>/dev/null; then
+    if rclone delete "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
+        --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE"; then
+      echo "$(date -Is) Deleted from Drive: $f" | tee -a "$LOG_FILE"
+    fi
+  fi
+done < <(rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only -0 2>/dev/null || true)
+
+# === SYNC THE 2 NEWEST FILES TO DRIVE ===
 rclone sync "$SRC_DIR" "$REMOTE" \
   --drive-root-folder-id "$DEST_FOLDER_ID" \
   --files-from "$TMP_LIST" \
@@ -57,6 +67,6 @@ rclone sync "$SRC_DIR" "$REMOTE" \
   --log-file "$LOG_FILE" --log-level INFO \
   --progress
 
-popd >/dev/null
 rm -f "$TMP_LIST"
+echo "$(date -Is) Sync complete." | tee -a "$LOG_FILE"
 echo "$(date -Is) Sync complete." | tee -a "$LOG_FILE"
