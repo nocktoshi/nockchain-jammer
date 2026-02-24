@@ -46,16 +46,22 @@ printf '  - %s\n' "${NEWEST_JAMS[@]}" | tee -a "$LOG_FILE"
 popd >/dev/null
 
 # === DELETE FROM DRIVE ANY FILE NOT IN TMP_LIST (do this before sync) ===
-while IFS= read -r -d '' f; do
-  f="${f#./}"
+# List all files in the Drive folder (newline-separated; -0 can be unreliable with some rclone builds)
+REMOTE_FILES=$(rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only 2>> "$LOG_FILE" || true)
+while IFS= read -r f; do
   [[ -z "$f" ]] && continue
+  f="${f#./}"
+  f="${f#/}"
   if ! grep -Fxq "$f" "$TMP_LIST" 2>/dev/null; then
-    if rclone delete "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
+    echo "$(date -Is) Deleting from Drive (not in keep list): $f" | tee -a "$LOG_FILE"
+    if rclone deletefile "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
         --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE"; then
       echo "$(date -Is) Deleted from Drive: $f" | tee -a "$LOG_FILE"
+    else
+      echo "$(date -Is) Failed to delete from Drive: $f" | tee -a "$LOG_FILE"
     fi
   fi
-done < <(rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only -0 2>/dev/null || true)
+done <<< "$REMOTE_FILES"
 
 # === SYNC THE 2 NEWEST FILES TO DRIVE ===
 rclone sync "$SRC_DIR" "$REMOTE" \
@@ -68,5 +74,4 @@ rclone sync "$SRC_DIR" "$REMOTE" \
   --progress
 
 rm -f "$TMP_LIST"
-echo "$(date -Is) Sync complete." | tee -a "$LOG_FILE"
 echo "$(date -Is) Sync complete." | tee -a "$LOG_FILE"
