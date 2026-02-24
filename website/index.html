@@ -124,12 +124,12 @@
           const latestDriveId = driveFileIds[latestName];
           if (latestDriveId) {
             latestLink.href = driveViewUrl(latestDriveId);
-            latestLink.innerHTML = "Download latest " + latestName + "<img src='" + DRIVE_ICON_URL + "' alt='Drive' class='drive-icon'>";
+            latestLink.innerHTML = "<img src='" + DRIVE_ICON_URL + "' alt='Drive' class='drive-icon'>Download Latest " + latestName;
             latestLink.removeAttribute("download");
           } else {
             const latestHref = latestPath.startsWith("jams/") ? "/" + latestPath : "./" + latestName;
             latestLink.href = latestHref;
-            latestLink.textContent = "Download latest " + latestName + ".jam";
+            latestLink.textContent = "Download Latest " + latestName;
             latestLink.download = latestName;
             latestLink.removeAttribute("target");
             latestLink.removeAttribute("rel");
