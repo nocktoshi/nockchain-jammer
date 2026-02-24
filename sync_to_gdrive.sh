@@ -57,6 +57,11 @@ while IFS= read -r f; do
     rclone deletefile "$REMOTE$f" --drive-root-folder-id "$DEST_FOLDER_ID" \
       --drive-use-trash=false \
       --log-file "$LOG_FILE" --log-level INFO 2>> "$LOG_FILE" || true
+
+    sleep 10s
+    if rclone lsf "$REMOTE" --drive-root-folder-id "$DEST_FOLDER_ID" --files-only 2>> "$LOG_FILE" | grep -Fxq "$f" 2>/dev/null; then
+      echo "$(date -Is) Failed to delete from Drive: $f" | tee -a "$LOG_FILE"
+    fi
   fi
 done <<< "$REMOTE_FILES"
 
