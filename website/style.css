@@ -252,6 +252,20 @@ code {
 
 .job-indicator .icon { margin-right: 0.3rem; }
 
+.job-phase {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0.12em 0.55em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: lowercase;
+  color: #1a1a2e;
+  background: #ffd700;
+  border-radius: 9999px;
+  vertical-align: middle;
+}
+
 .output-box {
   margin-top: 0.75rem;
   padding: 0.8rem 1rem;

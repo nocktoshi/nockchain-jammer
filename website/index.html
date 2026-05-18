@@ -158,6 +158,7 @@
       <p class="job-indicator">
         <span class="icon" id="job-icon">○</span>
         <span id="job-label">Idle</span>
+        <span id="job-phase" class="job-phase" hidden></span>
         <span id="job-detail" class="meta" style="margin-left:0.6em;"></span>
       </p>
       <div class="output-box" id="job-output"></div>
@@ -182,12 +183,31 @@
         if (saved) keyInput.value = saved;
 
         const detail = document.getElementById("job-detail");
+        const phaseEl = document.getElementById("job-phase");
         const ICONS = { idle: "\u25CB", running: "\uD83D\uDFE2", done: "\u2705", fail: "\u274C" };
 
-        function setIndicator(state, text, extra) {
+        const PHASE_LABELS = {
+          starting: "starting",
+          fetching_tip: "fetching tip",
+          exporting: "exporting",
+          manifest: "manifest",
+        };
+
+        function phaseLabel(phase) {
+          return PHASE_LABELS[phase] || phase || "";
+        }
+
+        function setIndicator(state, text, extra, phase) {
           icon.textContent = ICONS[state] || ICONS.idle;
           label.textContent = text;
           detail.textContent = extra || "";
+          if (phase) {
+            phaseEl.textContent = phase;
+            phaseEl.hidden = false;
+          } else {
+            phaseEl.textContent = "";
+            phaseEl.hidden = true;
+          }
         }
 
         function fmtDuration(secs) {
@@ -217,15 +237,18 @@
             }
 
             if (data.running) {
-              var extra = data.running_for_secs != null ? "(" + fmtDuration(data.running_for_secs) + ")" : "";
-              setIndicator("running", "Job running\u2026", extra);
+              var phase = data.phase ? phaseLabel(data.phase) : "";
+              var labelText = phase ? phase.charAt(0).toUpperCase() + phase.slice(1) + "\u2026" : "Job running\u2026";
+              var extra = data.running_for_secs != null ? fmtDuration(data.running_for_secs) : "";
+              setIndicator("running", labelText, extra, phase);
               runBtn.disabled = true;
             } else if (runBtn.disabled && icon.textContent === ICONS.running) {
               setIndicator(data.last_success ? "done" : "fail",
-                data.last_success ? "Completed successfully" : "Failed");
+                data.last_success ? "Completed successfully" : "Failed", "", null);
               runBtn.disabled = false;
               loadHashes();
             } else if (!runBtn.disabled) {
+              phaseEl.hidden = true;
               var parts = [];
               if (data.jam_count != null) parts.push(data.jam_count + " jam" + (data.jam_count !== 1 ? "s" : ""));
               if (data.last_completed) {
@@ -252,7 +275,7 @@
           runBtn.disabled = true;
           output.style.display = "block";
           output.textContent = "Starting job...";
-          setIndicator("running", "Job running\u2026");
+          setIndicator("running", "Starting\u2026", "", "starting");
 
           try {
             const res = await fetch("/api/make-jam", {
@@ -263,12 +286,12 @@
 
             if (!data.success) {
               output.textContent = data.output || "Failed";
-              setIndicator("fail", "Failed (HTTP " + res.status + ")");
+              setIndicator("fail", "Failed (HTTP " + res.status + ")", "", null);
               runBtn.disabled = false;
             }
           } catch (err) {
             output.textContent = err.message;
-            setIndicator("fail", "Request error");
+            setIndicator("fail", "Request error", "", null);
             runBtn.disabled = false;
           }
         });

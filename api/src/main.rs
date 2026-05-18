@@ -20,6 +20,7 @@ mod proto {
 
 struct JobState {
     running: bool,
+    phase: Option<String>,
     started_at: Option<Instant>,
     last_completed: Option<String>,
     last_success: Option<bool>,
@@ -68,6 +69,8 @@ struct JobResult {
 struct StatusResult {
     running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     running_for_secs: Option<u64>,
     jam_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +117,7 @@ async fn make_jam(State(state): State<Arc<AppState>>, headers: HeaderMap) -> imp
     }
     let log = JobLog::new();
     job.running = true;
+    job.phase = Some("starting".into());
     job.started_at = Some(Instant::now());
     job.live_log = Some(log.clone());
     drop(job);
@@ -124,7 +128,14 @@ async fn make_jam(State(state): State<Arc<AppState>>, headers: HeaderMap) -> imp
     let bg_log = log.clone();
     tokio::spawn(async move {
         let start = Instant::now();
-        let result = jammer::run_jam(&bg_state.config, &bg_log).await;
+        let result = jammer::run_jam(&bg_state.config, &bg_log, |phase| {
+            let state = Arc::clone(&bg_state);
+            async move {
+                let mut job = state.job.lock().await;
+                job.phase = Some(phase);
+            }
+        })
+        .await;
         let elapsed = start.elapsed();
 
         match &result {
@@ -144,6 +155,7 @@ async fn make_jam(State(state): State<Arc<AppState>>, headers: HeaderMap) -> imp
 
         let mut job = bg_state.job.lock().await;
         job.running = false;
+        job.phase = None;
         job.started_at = None;
         job.last_completed = Some(finished_at);
         job.last_success = Some(result.is_ok());
@@ -183,6 +195,7 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         job.last_output.clone()
     };
     let running = job.running;
+    let phase = job.phase.clone();
     drop(job);
 
     let jams_dir = state.config.jams_dir.clone();
@@ -194,6 +207,7 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
     Json(StatusResult {
         running,
+        phase,
         running_for_secs,
         jam_count,
         last_completed,
@@ -222,9 +236,9 @@ async fn main() {
         jams_dir: PathBuf::from(&jams_dir),
         html_root: PathBuf::from(&html_root),
         nockchain_rpc: env_or("NOCKCHAIN_RPC", "localhost:5556"),
+        nockchain_private_grpc: env_or("NOCKCHAIN_PRIVATE_GRPC", "http://127.0.0.1:5555"),
         nockchain_bin: PathBuf::from(env_or("NOCKCHAIN_BIN", "/root/.cargo/bin/nockchain")),
         nockchain_dir: nockchain_dir.clone(),
-        checkpoints_dir: nockchain_dir.join(".data.nockchain").join("checkpoints"),
         nockchain_user: std::env::var("NOCKCHAIN_USER")
             .ok()
             .filter(|s| !s.is_empty()),
@@ -234,6 +248,10 @@ async fn main() {
     eprintln!("config: JAMS_DIR={}", config.jams_dir.display());
     eprintln!("config: HTML_ROOT={}", config.html_root.display());
     eprintln!("config: NOCKCHAIN_RPC={}", config.nockchain_rpc);
+    eprintln!(
+        "config: NOCKCHAIN_PRIVATE_GRPC={}",
+        config.nockchain_private_grpc
+    );
     eprintln!("config: NOCKCHAIN_BIN={}", config.nockchain_bin.display());
     eprintln!("config: NOCKCHAIN_DIR={}", config.nockchain_dir.display());
     eprintln!(
@@ -241,16 +259,13 @@ async fn main() {
         config.nockchain_user.as_deref().unwrap_or("(none)")
     );
     eprintln!("config: NOCKCHAIN_SERVICE={}", config.nockchain_service);
-    eprintln!(
-        "config: CHECKPOINTS_DIR={}",
-        config.checkpoints_dir.display()
-    );
 
     let state = Arc::new(AppState {
         api_key,
         config,
         job: Mutex::new(JobState {
             running: false,
+            phase: None,
             started_at: None,
             last_completed: None,
             last_success: None,

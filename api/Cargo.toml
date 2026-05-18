@@ -15,9 +15,7 @@ prost = "0.13"
 sha2 = "0.10"
 hex = "0.4"
 anyhow = "1"
-tempfile = "3"
-nockapp = { git = "https://github.com/nocktoshi/nockchain", default-features = false }
-nockvm = { git = "https://github.com/nocktoshi/nockchain" }
+nockapp-grpc = { git = "https://github.com/nocktoshi/nockchain", branch = "dev", default-features = false, features = ["client"] }
 
 [build-dependencies]
 tonic-build = "0.12"

@@ -4,14 +4,13 @@ set -euo pipefail
 # nockchain-jammer installer
 # Run with: curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh | bash
 
-# Load configuration from .env file if it exists
 if [[ -f .env ]]; then
     set -a
+    # shellcheck disable=SC1091
     source .env
     set +a
 fi
 
-# Defaults (override in .env)
 REPO_URL="${REPO_URL:-https://github.com/nocktoshi/nockchain-jammer}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/nockchain-jammer}"
 SERVICE_NAME="${SERVICE_NAME:-nockchain-jammer-api}"
@@ -39,51 +38,17 @@ if [[ ! -f /etc/os-release ]] || ! grep -qi "ubuntu\|debian" /etc/os-release; th
     exit 1
 fi
 
+if ! command -v cargo >/dev/null 2>&1; then
+    log_error "cargo not found. Install Rust nightly with rustup (see README)."
+    exit 1
+fi
+
 log_info "Starting nockchain-jammer installation..."
 
-# ── Dependencies ──────────────────────────────────────────────────────
 log_info "Installing build dependencies..."
 apt-get update -qq
 apt-get install -y -qq curl git build-essential pkg-config libssl-dev protobuf-compiler >/dev/null
 
-# ── Jammer user ───────────────────────────────────────────────────────
-JAMMER_HOME="/var/lib/jammer"
-if ! id jammer >/dev/null 2>&1; then
-    useradd --system --shell /bin/bash --home "$JAMMER_HOME" --create-home jammer
-fi
-mkdir -p "$JAMMER_HOME"
-chown jammer:jammer "$JAMMER_HOME"
-
-# ── Rust toolchain (for jammer user) ─────────────────────────────────
-JAMMER_CARGO="$JAMMER_HOME/.cargo/bin/cargo"
-if [[ ! -x "$JAMMER_CARGO" ]]; then
-    log_info "Installing Rust toolchain for jammer user..."
-    sudo -u jammer \
-        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-        CARGO_HOME="$JAMMER_HOME/.cargo" \
-        bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path'
-fi
-
-if [[ -x "$JAMMER_HOME/.cargo/bin/rustup" ]]; then
-    log_info "Installing Rust nightly (required by nockchain dependency)..."
-    sudo -u jammer \
-        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-        CARGO_HOME="$JAMMER_HOME/.cargo" \
-        "$JAMMER_HOME/.cargo/bin/rustup" install nightly
-    log_info "Setting default Rust toolchain to nightly..."
-    sudo -u jammer \
-        RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-        CARGO_HOME="$JAMMER_HOME/.cargo" \
-        "$JAMMER_HOME/.cargo/bin/rustup" default nightly
-fi
-
-if [[ ! -x "$JAMMER_CARGO" ]]; then
-    log_error "Cargo not found at $JAMMER_CARGO"
-    exit 1
-fi
-log_info "Using cargo: $("$JAMMER_CARGO" --version 2>/dev/null || echo unknown)"
-
-# ── Clone / update repo ──────────────────────────────────────────────
 git config --global --add safe.directory "$INSTALL_DIR"
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     log_warn "Installation directory exists, updating..."
@@ -93,35 +58,25 @@ else
     git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
-# ── Build ─────────────────────────────────────────────────────────────
-log_info "Building API binary..."
-chown -R jammer:jammer "$INSTALL_DIR"
+log_info "Building API binary (rust-toolchain.toml selects nightly)..."
 [[ -f "$INSTALL_DIR/sync_to_gdrive.sh" ]] && chmod +x "$INSTALL_DIR/sync_to_gdrive.sh"
-(cd "$INSTALL_DIR" && sudo -u jammer \
-    RUSTUP_HOME="$JAMMER_HOME/.rustup" \
-    CARGO_HOME="$JAMMER_HOME/.cargo" \
-    "$JAMMER_CARGO" +nightly build --release --manifest-path "$INSTALL_DIR/api/Cargo.toml")
-
-# ── Install ───────────────────────────────────────────────────────────
-log_info "Installing files..."
+(cd "$INSTALL_DIR" && cargo build --release --manifest-path api/Cargo.toml)
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     log_info "Stopping existing service..."
     systemctl stop "$SERVICE_NAME"
 fi
 
+log_info "Installing files..."
 cp "$INSTALL_DIR/api/target/release/nockchain-jammer-api" "$API_BINARY_PATH"
 chmod +x "$API_BINARY_PATH"
 
-# Website + jam files directory
 mkdir -p "$JAMS_DIR"
 cp "$INSTALL_DIR/website/index.html" "$JAMS_DIR/"
 cp "$INSTALL_DIR/website/style.css" "$JAMS_DIR/"
 cp "$INSTALL_DIR/website/jam-icon.png" "$JAMS_DIR/" 2>/dev/null || true
 cp "$INSTALL_DIR/website/BerkeleyMono-Regular.ttf" "$JAMS_DIR/" 2>/dev/null || true
-chown -R jammer:jammer "$JAMS_DIR"
 
-# ── Environment file ─────────────────────────────────────────────────
 if [[ ! -f /etc/nockchain-jammer.env ]]; then
     log_info "Creating runtime configuration..."
     if [[ -f "$INSTALL_DIR/.env" ]]; then
@@ -131,7 +86,6 @@ if [[ ! -f /etc/nockchain-jammer.env ]]; then
     fi
 fi
 
-# Generate API key if missing
 if ! grep -q "^API_KEY=.\+" /etc/nockchain-jammer.env 2>/dev/null; then
     API_KEY=$(openssl rand -hex 32)
     log_info "Generated API key: ${API_KEY:0:8}..."
@@ -145,9 +99,8 @@ else
     log_info "Using existing API key: ${API_KEY:0:8}..."
 fi
 
-# ── Systemd service ──────────────────────────────────────────────────
 log_info "Creating systemd service..."
-cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
 [Unit]
 Description=Nockchain Jammer API
 After=network.target
@@ -164,23 +117,6 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# ── Sudo for nockchain export ────────────────────────────────────────
-NC_USER=""
-if grep -q "^NOCKCHAIN_USER=" /etc/nockchain-jammer.env 2>/dev/null; then
-    NC_USER=$(grep "^NOCKCHAIN_USER=" /etc/nockchain-jammer.env | cut -d'=' -f2)
-fi
-
-SYSTEMCTL_PATH="$(command -v systemctl)"
-cat > /etc/sudoers.d/nockchain-jammer << SUDOEOF
-root ALL=(ALL) NOPASSWD: $SYSTEMCTL_PATH stop nockchain, $SYSTEMCTL_PATH start nockchain, $SYSTEMCTL_PATH is-active nockchain, $SYSTEMCTL_PATH is-active --quiet nockchain
-SUDOEOF
-
-if [[ -n "$NC_USER" ]]; then
-    echo "root ALL=($NC_USER) NOPASSWD: ALL" >> /etc/sudoers.d/nockchain-jammer
-fi
-chmod 440 /etc/sudoers.d/nockchain-jammer
-
-# ── Start ─────────────────────────────────────────────────────────────
 log_info "Starting service..."
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"

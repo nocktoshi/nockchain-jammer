@@ -4,10 +4,17 @@
 
 Make yummy state jams. 
 
-A single binary serves the jam download website, provides an API to trigger new jam builds, manages the nockchain service lifecycle, and serves `.jam` files with SHA-256 checksum verification.
+A single binary serves the jam download website, provides an API to trigger new jam builds, and serves `.jam` files with SHA-256 checksum verification.
 
 ## Front-End
 <img width="837" height="630" alt="Front End" src="https://github.com/user-attachments/assets/0ee6a462-1a62-4a1a-8dfc-b9e23e6d1b59" />
+
+## Prerequisites
+
+Install on the server before running the installer:
+
+- **Rust nightly** via [rustup](https://rustup.rs) (`cargo` on `PATH`). The repo’s `rust-toolchain.toml` pins the nightly version used for builds.
+- **nockchain** on [nocktoshi/nockchain `dev`](https://github.com/nocktoshi/nockchain/tree/dev) with private gRPC `ExportState` (see [Nockchain requirement](#nockchain-requirement)).
 
 ## Quick Install
 
@@ -33,7 +40,7 @@ The installer copies `.env` (or `.env.example`) to `/etc/nockchain-jammer.env` f
 
 ## Architecture
 
-Export is done **from checkpoint files** while the nockchain node keeps running. The jammer reads `0.chkjam` and `1.chkjam` from `NOCKCHAIN_DIR/.data.nockchain/checkpoints/`, picks the newer by event number, decodes it, extracts kernel state (axis 6), and writes the same `.jam` format—without stopping the node or spawning a second nockchain process.
+Export calls **`NockApp::export_state`** on the running nockchain node via its **private gRPC** API ([nocktoshi/nockchain `dev`](https://github.com/nocktoshi/nockchain/tree/dev), includes [PR #119](https://github.com/nockchain/nockchain/pull/119)). The node keeps running; no checkpoint file reads.
 
 ```mermaid
 flowchart LR
@@ -41,20 +48,21 @@ flowchart LR
     Axum -->|"/jams/*"| Static["Static files + .jam downloads"]
     Axum -->|"/api/make-jam"| Jam["Jam creation"]
     Axum -->|"/api/status"| Status["Job status"]
-    Jam -->|"tonic gRPC"| Node["Nockchain node RPC"]
-    Jam -->|"Read checkpoints"| Chk["0.chkjam / 1.chkjam"]
-    Chk -->|"chkjam → .jam in-process"| Export["ExportedState .jam"]
+    Jam -->|"public gRPC"| Node["Nockchain blocks RPC"]
+    Jam -->|"private gRPC ExportState"| Export["NockApp::export_state → .jam"]
     Jam -->|"sha2"| Hash["SHA-256 manifest"]
 ```
 
 Everything runs in a single binary. No nginx, no shell scripts, no grpcurl.
+
+`POST /api/make-jam` returns **202** with `"job started"` immediately. Export runs in a background task; poll `GET /api/status` until `running` is false. While `phase` is `"exporting"`, the jammer is blocked on the private gRPC `ExportState` call (that `.await` does not return until nockchain has written the `.jam`).
 
 ## API Endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/make-jam` | `X-API-Key` header | Export a new state jam and update checksums |
-| `GET`  | `/api/status` | none | Check if a job is currently running |
+| `GET`  | `/api/status` | none | Job status: `running`, `phase` (`exporting`, `manifest`, …), live log |
 
 ## Static Routes
 
@@ -75,50 +83,31 @@ Everything runs in a single binary. No nginx, no shell scripts, no grpcurl.
 | `API_PORT` | `3001` | Port to listen on |
 | `JAMS_DIR` | `/usr/share/nginx/html/jams` | Directory for jam files and website assets |
 | `HTML_ROOT` | `/usr/share/nginx/html` | Web root (for manifest relative paths) |
-| `NOCKCHAIN_RPC` | `localhost:5556` | Nockchain gRPC endpoint |
-| `NOCKCHAIN_BIN` | `/root/.cargo/bin/nockchain` | Path to nockchain binary |
-| `NOCKCHAIN_DIR` | `/root/nockchain` | Nockchain repo/data directory; checkpoints are read from `NOCKCHAIN_DIR/.data.nockchain/checkpoints/` |
-| `NOCKCHAIN_USER` | *(none)* | Unused (reserved for future use) |
-| `NOCKCHAIN_SERVICE` | `nockchain` | Unused (reserved for future use) |
+| `NOCKCHAIN_RPC` | `localhost:5556` | Nockchain public gRPC (tip block height) |
+| `NOCKCHAIN_PRIVATE_GRPC` | `http://127.0.0.1:5555` | Nockchain private gRPC (`ExportState` RPC) |
+| `NOCKCHAIN_BIN` | `/root/.cargo/bin/nockchain` | Path to nockchain binary (informational) |
+| `NOCKCHAIN_DIR` | `/root/nockchain` | Nockchain repo/data directory |
+| `NOCKCHAIN_USER` | *(none)* | Reserved |
+| `NOCKCHAIN_SERVICE` | `nockchain` | Reserved |
 
-## Build Requirements
+## Nockchain requirement
 
-- Rust toolchain (installed automatically by `install.sh`). This project uses **nightly** (see `rust-toolchain.toml`) because the nockchain dependency requires it.
-- `protobuf-compiler` (for gRPC proto generation)
-- `build-essential`, `pkg-config`, `libssl-dev`
+The jammer depends on [nocktoshi/nockchain `dev`](https://github.com/nocktoshi/nockchain/tree/dev) with:
+
+- `NockApp::export_state` ([PR #119](https://github.com/nockchain/nockchain/pull/119))
+- Private gRPC `ExportState` RPC (push your nockchain `dev` branch after merging the grpc export wiring)
+
+Rebuild and restart **nockchain** after updating, then deploy the jammer.
 
 ## Manual Build
 
+From the repo root (so `rust-toolchain.toml` is picked up):
+
 ```bash
-cd api
-cargo build --release
+cargo build --release --manifest-path api/Cargo.toml
 # Binary at api/target/release/nockchain-jammer-api
 ```
 
-## Syncing to Google Drive (optional)
-
-The script `sync_to_gdrive.sh` uses [rclone](https://rclone.org/) to sync the **newest two** `.jam` files from your jams directory to a Google Drive folder. It keeps only those two in the destination (older jams in Drive are removed).
-
-**Prerequisites:** Install rclone and configure a Google Drive remote (e.g. `rclone config` → name it `gdrive`).
-
-**Configure** the script (edit the CONFIG block at the top):
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `SRC_DIR` | `/usr/share/nginx/html/jams` | Local jams directory (should match `JAMS_DIR` or your web root for jams) |
-| `REMOTE` | `gdrive:` | rclone remote name |
-| `DEST_FOLDER_ID` | `1P9-XYfFE6gJi6rosFLd9sjGpi3AWkpMs` | Google Drive folder ID (from the folder URL: `drive.google.com/.../folders/<ID>`) |
-| `LOG_FILE` | `/var/log/rclone-jams-sync.log` | Where to append logs |
-
-**Run manually:**
-```bash
-./sync_to_gdrive.sh
-```
-
-**Run periodically** (e.g. after each jam or hourly): add a cron job or call the script from your jam-creation workflow. Example cron (daily at 3am):
-```bash
-0 3 * * * /opt/nockchain-jammer/sync_to_gdrive.sh
-```
-
+The installer also installs `build-essential`, `pkg-config`, `libssl-dev`, and `protobuf-compiler` on Debian/Ubuntu when you run `install.sh`.
 
 

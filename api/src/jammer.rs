@@ -2,10 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use nockapp::export::ExportedState;
-use nockapp::kernel::form::LoadState;
-use nockapp::noun::slab::NockJammer;
-use nockapp::save::{JammedCheckpointV2, SaveableCheckpoint};
+use nockapp_grpc::services::private_nockapp::client::PrivateNockAppGrpcClient;
 use sha2::{Digest, Sha256};
 use tonic::transport::Channel;
 
@@ -20,9 +17,9 @@ pub struct JammerConfig {
     pub jams_dir: PathBuf,
     pub manifest_path: PathBuf,
     pub nockchain_rpc: String,
+    pub nockchain_private_grpc: String,
     pub nockchain_bin: PathBuf,
     pub nockchain_dir: PathBuf,
-    pub checkpoints_dir: PathBuf,
     pub nockchain_user: Option<String>,
     pub nockchain_service: String,
 }
@@ -60,65 +57,42 @@ pub async fn get_tip_block(config: &JammerConfig) -> Result<u64> {
     }
 }
 
-/// Exports kernel state from the newest of 0.chkjam/1.chkjam (by mtime) to a .jam file (ExportedState format).
-/// V2 checkpoints only. Does not start or stop the node.
-/// Copies checkpoint files to a temp dir first so the running node can overwrite them safely.
-///
-/// **RAM usage:** Peak memory is roughly: full chkjam file + decoded checkpoint (state + cold slabs) +
-/// jammed kernel state bytes + bincode-encoded output. No extra copy of the kernel state tree (we move
-/// `saveable.state` into `LoadState`). Full streaming would require the nockapp/nockchain dependency to
-/// expose encode-to-writer and/or streaming jam; currently the final buffer is materialized before write.
-pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) -> Result<()> {
-    let path_0 = checkpoints_dir.join("0.chkjam");
-    let path_1 = checkpoints_dir.join("1.chkjam");
-
-    let source_path = [path_0.as_path(), path_1.as_path()]
-        .iter()
-        .filter(|p| p.exists())
-        .filter_map(|p| Some((*p, std::fs::metadata(p).ok()?.modified().ok()?)))
-        .max_by_key(|(_, t)| *t)
-        .map(|(p, _)| p)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No checkpoint found in {} (need 0.chkjam or 1.chkjam)",
-                checkpoints_dir.display()
-            )
-        })?;
-
-    let _temp_dir = tempfile::tempdir().context("Failed to create temp dir for checkpoint copy")?;
-    let temp_path = _temp_dir.path().join("checkpoint.chkjam");
-
-    std::fs::copy(&source_path, &temp_path)
-        .with_context(|| format!("Failed to copy {}", source_path.display()))?;
-
-    let saveable = {
-        let bytes = std::fs::read(&temp_path)
-            .with_context(|| format!("Failed to read copied checkpoint {}", temp_path.display()))?;
-        let jammed = JammedCheckpointV2::decode_from_bytes(&bytes)
-            .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?;
-        SaveableCheckpoint::from_jammed_checkpoint_v2::<NockJammer>(jammed, None)
-            .map_err(|e| anyhow::anyhow!("Checkpoint decode: {:?}", e))?
-    };
+/// Export live kernel state from the running nockchain node via private gRPC
+/// (`NockApp::export_state` on the node). Does not stop the node.
+pub async fn export_state_to_jam(
+    private_grpc: &str,
+    out_jam_path: &Path,
+    log: &JobLog,
+) -> Result<()> {
+    if let Some(parent) = out_jam_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+    }
 
     log.append(&format!(
-        "[jammer] Using checkpoint event_num {}",
-        saveable.event_num
+        "[jammer] Exporting live state via private gRPC ({}) to {}",
+        private_grpc,
+        out_jam_path.display()
     ));
 
-    // saveable.state is already the full kernel state slab (from checkpoint state_jam).
-    // We move it (no clone) to avoid a second full copy of the noun tree in RAM.
-    let load_state = LoadState {
-        ker_hash: saveable.ker_hash,
-        event_num: saveable.event_num,
-        kernel_state: saveable.state,
-    };
+    let mut client = PrivateNockAppGrpcClient::connect(private_grpc)
+        .await
+        .map_err(|e| anyhow::anyhow!("Private gRPC connect failed: {e}"))?;
 
-    let bytes = ExportedState::from_loadstate(load_state)
-        .encode()
-        .context("ExportedState encode")?;
+    // Blocks until nockchain finishes writing the file (RPC is synchronous end-to-end).
+    client
+        .export_state(out_jam_path.to_string_lossy().into_owned())
+        .await
+        .map_err(|e| anyhow::anyhow!("ExportState RPC failed: {e}"))?;
 
-    std::fs::write(out_jam_path, &bytes)
-        .with_context(|| format!("Failed to write jam file: {}", out_jam_path.display()))?;
+    if !out_jam_path.exists() {
+        bail!(
+            "ExportState succeeded but no jam file at {}",
+            out_jam_path.display()
+        );
+    }
 
     log.append(&format!(
         "[jammer] Exported jam: {}",
@@ -127,9 +101,19 @@ pub fn chkjam_to_jam(checkpoints_dir: &Path, out_jam_path: &Path, log: &JobLog) 
     Ok(())
 }
 
-/// Runs the entire export → manifest flow on a blocking thread.
-/// Uses standalone chkjam→.jam export (no node stop/start).
-pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
+/// Runs the entire export → manifest flow.
+/// Uses live `NockApp::export_state` on the running node (private gRPC).
+/// `set_phase` is called as work progresses (for `/api/status`).
+pub async fn run_jam<F, Fut>(
+    config: &JammerConfig,
+    log: &JobLog,
+    mut set_phase: F,
+) -> Result<String>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    set_phase("fetching_tip".into()).await;
     let tip = get_tip_block(config)
         .await
         .context("Failed to get tip block")?;
@@ -146,41 +130,26 @@ pub async fn run_jam(config: &JammerConfig, log: &JobLog) -> Result<String> {
             "[jammer] Jam already exists: {} (skipping)",
             jam_path.display()
         ));
+        set_phase("manifest".into()).await;
         write_manifest(config, log).await?;
         return Ok(format!("Jam for block {} already exists", tip));
     }
 
     std::fs::create_dir_all(&config.jams_dir).context("Failed to create jams directory")?;
     log.append(&format!(
-        "[jammer] Exporting from checkpoints to: {}",
+        "[jammer] Exporting live state to: {}",
         jam_path.display()
     ));
 
-    let checkpoints_dir = config.checkpoints_dir.clone();
-    let out_path = jam_path.to_path_buf();
-    let jams_dir = config.jams_dir.clone();
-    let html_root = config.html_root.clone();
-    let manifest_path = config.manifest_path.clone();
-    let log = log.clone();
+    set_phase("exporting".into()).await;
+    export_state_to_jam(&config.nockchain_private_grpc, &jam_path, log)
+        .await
+        .context("Live state export failed")?;
 
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
+    set_phase("manifest".into()).await;
+    write_manifest(config, log).await?;
 
-    std::thread::spawn(move || {
-        let result = chkjam_to_jam(&checkpoints_dir, &out_path, &log);
-        if result.is_ok() {
-            if let Err(e) = write_manifest_sync(&html_root, &jams_dir, &manifest_path, &log) {
-                let _ = tx.send(Err(e));
-                return;
-            }
-        }
-        let _ = tx.send(result);
-    });
-
-    rx.await
-        .context("jam thread dropped sender")?
-        .context("jam task failed")?;
-
-    return Ok(format!("Exported jam for block {}", tip));
+    Ok(format!("Exported jam for block {}", tip))
 }
 
 fn hash_file(path: &Path) -> Result<String> {
@@ -239,7 +208,6 @@ fn write_manifest_sync(
         bail!("No files found to hash");
     }
 
-    // Hash all files in parallel
     let results: Vec<Result<(String, String)>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .iter()
@@ -260,7 +228,6 @@ fn write_manifest_sync(
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
-    // Collect results in original sorted order
     let mut content = String::new();
     for result in results {
         let (hash, rel) = result?;
