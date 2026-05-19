@@ -13,7 +13,7 @@ A single binary serves the jam download website, provides an API to trigger new 
 
 Install on the server before running the installer:
 
-- **Rust nightly** via [rustup](https://rustup.rs) (`cargo` on `PATH`). The repo’s `rust-toolchain.toml` pins the nightly version used for builds.
+- **Rust nightly** via [rustup](https://rustup.rs) on your **normal user account** (not root). The installer runs `cargo` as `sudo`’s invoking user (`$SUDO_USER`) or `BUILD_USER` from `.env`.
 - **nockchain** on [nocktoshi/nockchain `dev`](https://github.com/nocktoshi/nockchain/tree/dev) with private gRPC `ExportState` (see [Nockchain requirement](#nockchain-requirement)).
 
 ## Quick Install
@@ -21,6 +21,8 @@ Install on the server before running the installer:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nocktoshi/nockchain-jammer/main/install.sh | bash
 ```
+
+Run with `sudo` from your user so the script can build with **your** `cargo`, then install the binary and systemd unit as root.
 
 **Inspect before running:**
 ```bash

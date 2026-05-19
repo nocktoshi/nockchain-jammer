@@ -16,6 +16,8 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/nockchain-jammer}"
 SERVICE_NAME="${SERVICE_NAME:-nockchain-jammer-api}"
 JAMS_DIR="${JAMS_DIR:-/usr/share/nginx/html/jams}"
 API_BINARY_PATH="${API_BINARY_PATH:-/usr/local/bin/nockchain-jammer-api}"
+# User that runs `cargo` (not root). Defaults to sudo invoker; set in .env if needed.
+BUILD_USER="${BUILD_USER:-${SUDO_USER:-}}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -38,18 +40,28 @@ if [[ ! -f /etc/os-release ]] || ! grep -qi "ubuntu\|debian" /etc/os-release; th
     exit 1
 fi
 
-if ! command -v cargo >/dev/null 2>&1; then
-    log_error "cargo not found. Install Rust nightly with rustup (see README)."
+if [[ -z "$BUILD_USER" ]] || [[ "$BUILD_USER" == "root" ]]; then
+    log_error "Set BUILD_USER in .env (or run: sudo -u youruser bash install.sh)."
+    log_error "Install does not use root's cargo; Rust should stay on your normal user account."
     exit 1
 fi
 
-log_info "Starting nockchain-jammer installation..."
+if ! id "$BUILD_USER" >/dev/null 2>&1; then
+    log_error "BUILD_USER '$BUILD_USER' does not exist on this system."
+    exit 1
+fi
+
+if ! sudo -u "$BUILD_USER" -H bash -lc 'command -v cargo >/dev/null 2>&1'; then
+    log_error "cargo not found for user '$BUILD_USER'. Install Rust nightly with rustup (see README)."
+    exit 1
+fi
+
+log_info "Starting nockchain-jammer installation (build as user: $BUILD_USER)..."
 
 log_info "Installing build dependencies..."
 apt-get update -qq
 apt-get install -y -qq curl git build-essential pkg-config libssl-dev protobuf-compiler >/dev/null
 
-git config --global --add safe.directory "$INSTALL_DIR"
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     log_warn "Installation directory exists, updating..."
     git -C "$INSTALL_DIR" pull
@@ -58,9 +70,12 @@ else
     git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
-log_info "Building API binary (rust-toolchain.toml selects nightly)..."
+chown -R "$BUILD_USER:$BUILD_USER" "$INSTALL_DIR"
+sudo -u "$BUILD_USER" -H git config --global --add safe.directory "$INSTALL_DIR"
+
+log_info "Building API binary as $BUILD_USER (rust-toolchain.toml selects nightly)..."
 [[ -f "$INSTALL_DIR/sync_to_gdrive.sh" ]] && chmod +x "$INSTALL_DIR/sync_to_gdrive.sh"
-(cd "$INSTALL_DIR" && cargo build --release --manifest-path api/Cargo.toml)
+sudo -u "$BUILD_USER" -H bash -lc "cd '$INSTALL_DIR' && cargo build --release --manifest-path api/Cargo.toml"
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     log_info "Stopping existing service..."
